@@ -1,0 +1,21 @@
+{
+  "name": "docs",
+  "description": "Documentation site for chaff — a schema-driven mock/fallback engine.",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.41.5",
+    "astro": "^7.0.2"
+  },
+  "devDependencies": {
+    "@astrojs/mdx": "^7.0.5"
+  }
+}

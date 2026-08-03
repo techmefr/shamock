@@ -5,11 +5,11 @@
     "type": "module",
     "license": "MIT",
     "author": "techmefr",
-    "homepage": "https://github.com/techmefr/pilota/tree/main/packages/chaff#readme",
+    "packageManager": "pnpm@11.9.0",
+    "homepage": "https://github.com/techmefr/chaff#readme",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/techmefr/pilota.git",
-        "directory": "packages/chaff"
+        "url": "git+https://github.com/techmefr/chaff.git"
     },
     "keywords": [
         "mock",

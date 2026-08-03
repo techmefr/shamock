@@ -38,6 +38,11 @@ await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single objec
 Standalone fixture validation for tests, or the offline fallback layer for
 [`nexdk`](https://www.npmjs.com/package/nexdk).
 
+## Documentation
+
+Full docs, including how to pair `chaff` with `nexdk`, live at
+[techmefr.github.io/chaff](https://techmefr.github.io/chaff/).
+
 ## License
 
 MIT © techmefr

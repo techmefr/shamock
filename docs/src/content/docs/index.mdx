@@ -1,0 +1,54 @@
+---
+title: chaff
+description: Schema-driven mock/fallback engine — validate fixtures against any Standard Schema, optional MirageJS server.
+template: splash
+hero:
+  tagline: Schema-driven mock and offline-fallback engine. Validate fixtures against any Standard Schema validator so your test and offline data can't drift from the real shape.
+  actions:
+    - text: Read the introduction
+      link: /chaff/introduction/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/techmefr/chaff
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Install
+
+```bash
+pnpm add chaff
+# plus the validator of your choice, e.g. zod
+# optional, for the in-browser mock server:
+pnpm add miragejs
+```
+
+## Usage
+
+```ts
+import { parseMock, parseMockList } from 'chaff'
+import { z } from 'zod'
+
+const product = { schema: z.object({ id: z.number(), name: z.string() }) }
+
+await parseMock(product, { id: 1, name: 'A' })          // → validated single item
+await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single object or array)
+```
+
+<CardGrid>
+	<Card title="Validator-agnostic" icon="approve-check">
+		Validates against any [Standard Schema](https://standardschema.dev)
+		implementation — Zod, Valibot, ArkType. `chaff` never hardcodes one.
+	</Card>
+	<Card title="Structural, not SDK-shaped" icon="puzzle">
+		Accepts any `{ schema }` object — a minimal `MockableResource`, not a
+		specific SDK's resource type. No dependency on `nexdk` or anything else.
+	</Card>
+	<Card title="Optional Mirage server" icon="rocket">
+		`setupMirageMock` spins up a full in-browser REST mock server from the
+		same seed data, when fixture validation alone isn't enough.
+	</Card>
+</CardGrid>
