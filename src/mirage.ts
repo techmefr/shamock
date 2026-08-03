@@ -2,12 +2,12 @@ export interface MirageResourceSeed {
     [resourceName: string]: Record<string, unknown>[]
 }
 
-export interface MiragePilotaConfig {
+export interface MirageSdkConfig {
     baseUrl: string
     seed: MirageResourceSeed
 }
 
-export async function setupMirageMock(config: MiragePilotaConfig): Promise<unknown> {
+export async function setupMirageMock(config: MirageSdkConfig): Promise<unknown> {
     const { createServer, Model } = await import('miragejs')
 
     const models = Object.fromEntries(
