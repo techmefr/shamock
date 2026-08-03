@@ -1,7 +1,7 @@
 {
     "name": "chaff",
     "version": "0.0.1",
-    "description": "Schema-driven mock/fallback engine — validate fixtures against a Zod schema, optional MirageJS server.",
+    "description": "Schema-driven mock/fallback engine — validate fixtures against any Standard Schema (Zod, Valibot, ArkType…), optional MirageJS server.",
     "type": "module",
     "license": "MIT",
     "author": "techmefr",
@@ -14,7 +14,7 @@
     "keywords": [
         "mock",
         "fixture",
-        "zod",
+        "standard-schema",
         "miragejs",
         "offline",
         "fallback"
@@ -41,8 +41,7 @@
         "dev": "unbuild --stub"
     },
     "peerDependencies": {
-        "miragejs": "^0.1.47",
-        "zod": "^3.23.8"
+        "miragejs": "^0.1.47"
     },
     "peerDependenciesMeta": {
         "miragejs": {
@@ -53,7 +52,7 @@
         "miragejs": "^0.1.47",
         "unbuild": "^2.0.0",
         "vitest": "^2.0.0",
-        "zod": "^3.23.8",
+        "zod": "^3.24.0",
         "typescript": "^5.5.0"
     }
 }
