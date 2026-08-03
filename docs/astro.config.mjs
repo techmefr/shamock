@@ -13,6 +13,7 @@ export default defineConfig({
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/techmefr/chaff' },
 			],
+			customCss: ['./src/styles/custom.css'],
 			head: [
 				{ tag: 'meta', attrs: { property: 'og:type', content: 'website' } },
 				{ tag: 'meta', attrs: { property: 'og:site_name', content: 'chaff' } },

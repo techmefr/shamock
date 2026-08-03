@@ -1,0 +1,90 @@
+/* Bold, high-contrast theme: near-black/white base with a single electric accent. */
+
+:root {
+	--sl-color-accent-low: #00203a;
+	--sl-color-accent: #2f8fff;
+	--sl-color-accent-high: #b8e4ff;
+	--sl-color-white: #ffffff;
+	--sl-color-gray-1: #eef1ee;
+	--sl-color-gray-2: #c4c9c4;
+	--sl-color-gray-3: #8b928b;
+	--sl-color-gray-4: #5a615a;
+	--sl-color-gray-5: #34372f;
+	--sl-color-gray-6: #1c1e1a;
+	--sl-color-black: #0a0b09;
+
+	--sl-font: 'Helvetica Neue', 'Arial', system-ui, sans-serif;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #d6ecff;
+	--sl-color-accent: #0060c0;
+	--sl-color-accent-high: #003a70;
+	--sl-color-white: #0a0b09;
+	--sl-color-gray-1: #1c1e1a;
+	--sl-color-gray-2: #34372f;
+	--sl-color-gray-3: #5a615a;
+	--sl-color-gray-4: #8b928b;
+	--sl-color-gray-5: #c4c9c4;
+	--sl-color-gray-6: #eef1ee;
+	--sl-color-gray-7: #f7f9f7;
+	--sl-color-black: #ffffff;
+}
+
+/* Uppercase is kept for the hero only: in body copy it shouts, and it mangles
+   the code identifiers that headings legitimately contain. */
+h1,
+h2,
+h3 {
+	font-weight: 800;
+	letter-spacing: -0.02em;
+}
+
+h1 {
+	font-size: 2.25rem;
+	line-height: 1.1;
+}
+
+h2 {
+	font-size: 1.5rem;
+}
+
+h3 {
+	font-size: 1.175rem;
+}
+
+a {
+	text-underline-offset: 0.2em;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+	font-weight: 600;
+	text-decoration-thickness: 2px;
+}
+
+.hero h1 {
+	font-size: 3rem;
+	text-transform: uppercase;
+}
+
+.hero .tagline {
+	font-weight: 500;
+	letter-spacing: -0.01em;
+}
+
+.hero .actions a {
+	border-radius: 999px;
+	border-width: 2px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.card {
+	border-width: 2px !important;
+	border-radius: 0.75rem !important;
+}
+
+code {
+	font-weight: 600;
+}
