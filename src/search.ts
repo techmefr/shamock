@@ -2,6 +2,9 @@ import { HttpError } from './http-error.ts'
 import { isRecord, own } from './record.ts'
 
 const MAX_NESTING = 10
+const MAX_FILTERS = 100
+const MAX_LIST_VALUES = 1000
+const MAX_PATTERN_LENGTH = 256
 
 export type SearchRecord = Record<string, unknown>
 
@@ -55,6 +58,20 @@ function likeMatch(value: string, pattern: string): boolean {
     return p === glob.length
 }
 
+function ordered(left: unknown, right: unknown): number | undefined {
+    if (typeof left === 'number' && typeof right === 'number' && !Number.isNaN(left) && !Number.isNaN(right)) {
+        return left - right
+    }
+    if (typeof left === 'string' && typeof right === 'string') return left < right ? -1 : left > right ? 1 : 0
+    return undefined
+}
+
+function likeResult(left: unknown, right: unknown): boolean | undefined {
+    if (typeof right !== 'string') return undefined
+    if (typeof left !== 'string' && typeof left !== 'number' && typeof left !== 'boolean') return undefined
+    return likeMatch(String(left), right)
+}
+
 function compare(left: unknown, operator: string, right: unknown): boolean {
     switch (operator) {
         case '=':
@@ -62,17 +79,17 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
         case '!=':
             return left !== right
         case '>':
-            return (left as number) > (right as number)
+            return (ordered(left, right) ?? Number.NaN) > 0
         case '>=':
-            return (left as number) >= (right as number)
+            return (ordered(left, right) ?? Number.NaN) >= 0
         case '<':
-            return (left as number) < (right as number)
+            return (ordered(left, right) ?? Number.NaN) < 0
         case '<=':
-            return (left as number) <= (right as number)
+            return (ordered(left, right) ?? Number.NaN) <= 0
         case 'like':
-            return likeMatch(String(left), String(right))
+            return likeResult(left, right) === true
         case 'not like':
-            return !likeMatch(String(left), String(right))
+            return likeResult(left, right) === false
         case 'in':
             return Array.isArray(right) && right.includes(left)
         case 'not in':
@@ -82,14 +99,20 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
     }
 }
 
+const asText = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(asText)
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : value
+}
 
 function matches(record: SearchRecord, filters: SearchFilter[]): boolean {
     let result = true
     filters.forEach((filter, index) => {
+        const field = filter.field ?? ''
+        const normalize = field === 'id' ? asText : (value: unknown): unknown => value
         const current =
             filter.nested !== undefined
                 ? matches(record, filter.nested)
-                : compare(own(record, filter.field ?? ''), filter.operator ?? '=', filter.value)
+                : compare(normalize(own(record, field)), filter.operator ?? '=', normalize(filter.value))
         if (index === 0) result = current
         else if (filter.type === 'or') result = result || current
         else result = result && current
@@ -135,16 +158,27 @@ function listOf(value: unknown, what: string): Record<string, unknown>[] {
     })
 }
 
-function filtersOf(value: unknown, depth = 0): SearchFilter[] {
+function valueOf(item: Record<string, unknown>, operator: string | undefined): unknown {
+    const value = own(item, 'value')
+    if (Array.isArray(value) && value.length > MAX_LIST_VALUES) throw invalid(`value lists are limited to ${MAX_LIST_VALUES} items`)
+    if ((operator === 'like' || operator === 'not like') && typeof value === 'string' && value.length > MAX_PATTERN_LENGTH) {
+        throw invalid(`like patterns are limited to ${MAX_PATTERN_LENGTH} characters`)
+    }
+    return value
+}
+
+function filtersOf(value: unknown, budget = { left: MAX_FILTERS }, depth = 0): SearchFilter[] {
     if (depth > MAX_NESTING) throw invalid('filters are nested too deeply')
     return listOf(value, 'filters').map(item => {
+        if (--budget.left < 0) throw invalid(`filters are limited to ${MAX_FILTERS}`)
         const nested = own(item, 'nested')
+        const operator = optionalString(item, 'operator')
         return {
             field: optionalString(item, 'field'),
-            operator: optionalString(item, 'operator'),
+            operator,
             type: optionalString(item, 'type'),
-            value: own(item, 'value'),
-            nested: nested === undefined ? undefined : filtersOf(nested, depth + 1),
+            value: valueOf(item, operator),
+            nested: nested === undefined ? undefined : filtersOf(nested, budget, depth + 1),
         }
     })
 }

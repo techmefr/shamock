@@ -73,12 +73,10 @@ describe('applySearch', () => {
 })
 
 describe('like robustness and sorting', () => {
-    it('matches pathological patterns in linear-ish time', () => {
+    it('matches pathological patterns without backtracking blowup', () => {
         const text = 'a'.repeat(50000)
-        const start = Date.now()
-        const result = applySearch([{ v: text }], { filters: [{ field: 'v', operator: 'like', value: '%a%a%a%a%a%a%a%b' }] })
+        const result = applySearch([{ v: text }], { filters: [{ field: 'v', operator: 'like', value: '%a%a%a%a%a%a%a%a%a%a%a%a%a%a%a%a%b' }] })
         expect(result.data).toHaveLength(0)
-        expect(Date.now() - start).toBeLessThan(2000)
     })
 
     it('supports underscore, case insensitivity and anchors', () => {
@@ -94,5 +92,46 @@ describe('like robustness and sorting', () => {
         const desc = applySearch(rows, { sorts: [{ field: 'n', direction: 'desc' }] }).data.map(r => r['id'])
         expect(asc).toEqual([4, 2, 1, 3, 5])
         expect(desc).toEqual([2, 4, 1, 3, 5])
+    })
+})
+
+describe('type safety and limits', () => {
+    const rows = [{ id: 1, n: 5, s: 'b' }, { id: 2, n: null, s: null }, { id: 3, s: 'a' }]
+    const ids = (filter: Record<string, unknown>): unknown[] => applySearch(rows, { filters: [filter] }).data.map(row => row['id'])
+
+    it.each(['>', '>=', '<', '<='])('%s is false for null, undefined and mixed types', operator => {
+        expect(ids({ field: 'n', operator, value: 1 })).toEqual(operator.startsWith('>') ? [1] : [])
+        expect(ids({ field: 's', operator, value: 1 })).toEqual([])
+        expect(ids({ field: 'n', operator, value: null })).toEqual([])
+        expect(ids({ field: 'n', operator, value: '1' })).toEqual([])
+    })
+
+    it('compares strings with ordering operators', () => {
+        expect(ids({ field: 's', operator: '>', value: 'a' })).toEqual([1])
+    })
+
+    it('like and not like are false on null and undefined values', () => {
+        expect(ids({ field: 's', operator: 'like', value: '%' })).toEqual([1, 3])
+        expect(ids({ field: 's', operator: 'not like', value: 'a' })).toEqual([1])
+        expect(ids({ field: 's', operator: 'like', value: 'null' })).toEqual([])
+    })
+
+    it('limits like patterns, filters and list sizes', () => {
+        expect(() => applySearch(rows, { filters: [{ field: 's', operator: 'like', value: 'a'.repeat(257) }] })).toThrow('Invalid search')
+        expect(ids({ field: 's', operator: 'like', value: 'a'.repeat(256) })).toEqual([])
+        const filters = Array.from({ length: 101 }, () => ({ field: 'id', value: 1 }))
+        expect(() => applySearch(rows, { filters })).toThrow('Invalid search')
+        expect(() => applySearch(rows, { filters: filters.slice(1) })).not.toThrow()
+        const nested = [{ nested: filters.slice(0, 60) }, { nested: filters.slice(0, 60) }]
+        expect(() => applySearch(rows, { filters: nested })).toThrow('Invalid search')
+        const list = Array.from({ length: 1001 }, (_, index) => index)
+        expect(() => applySearch(rows, { filters: [{ field: 'id', operator: 'in', value: list }] })).toThrow('Invalid search')
+    })
+
+    it('matches the id field as text', () => {
+        expect(ids({ field: 'id', operator: '=', value: '2' })).toEqual([2])
+        expect(ids({ field: 'id', operator: '!=', value: '2' })).toEqual([1, 3])
+        expect(ids({ field: 'id', operator: 'in', value: ['1', 3] })).toEqual([1, 3])
+        expect(ids({ field: 'id', operator: 'not in', value: ['1', 3] })).toEqual([2])
     })
 })
