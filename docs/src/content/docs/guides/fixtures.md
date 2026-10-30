@@ -32,6 +32,6 @@ try {
 }
 ```
 
-Validation issues are joined into one error message with `; ` separators. Async validators are supported, so always await parsing.
+Validation issues are reported as `MockValidationError`, with the original `issues`, field paths in the message and a zero-based `index` for invalid list items. Async validators are supported, so always await parsing.
 
 The current public return types are `Promise<unknown>` and `Promise<unknown[]>`. Runtime validation follows your schema, while the helpers do not expose its inferred output type yet.

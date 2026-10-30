@@ -38,10 +38,10 @@ await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single objec
   validate `T | T[]` against `resource.schema` (async: Standard Schema's
   `validate` may return a Promise). `resource` only needs a minimal
   `{ schema }` (a `MockableResource`), so there's no dependency on the SDK.
-- **`setupMirageMock({ baseUrl, seed })`** — spin up a MirageJS server backed
+- **`setupMirageMock({ baseUrl, seed, resources?, timing? })`** — spin up a MirageJS server backed
   by `seed` (a `{ [resourceName]: object[] }` map), serving `/:resource/search`,
   `/:resource/mutate` and `DELETE /:resource` in the lomkit REST shape (peer
-  dependency `miragejs`, optional).
+  dependency `miragejs`, optional). Pass `resources` to validate seeds and `timing` to set response latency.
 
 Standalone fixture validation for tests, or the offline fallback layer for
 [`nexdk`](https://www.npmjs.com/package/nexdk).

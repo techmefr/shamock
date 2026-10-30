@@ -10,7 +10,7 @@ pnpm add miragejs
 ```
 
 ```ts
-import { parseMockList, setupMirageMock } from 'shamock'
+import { setupMirageMock } from 'shamock'
 import { z } from 'zod'
 
 const product = {
@@ -18,14 +18,15 @@ const product = {
 }
 const products = [{ id: 1, name: 'Sample' }]
 
-await parseMockList(product, products)
 await setupMirageMock({
   baseUrl: '/api',
   seed: { products },
+  resources: { products: product },
+  timing: 150,
 })
 ```
 
-The seed is validated explicitly before the server starts. `setupMirageMock` does not receive schemas or validate seed data itself.
+The optional `resources` map validates seed data against its matching schemas before the server starts. Without a matching schema, that resource's seed is loaded unchanged. Set `timing` to control the response delay.
 
 | Endpoint | Purpose |
 |---|---|

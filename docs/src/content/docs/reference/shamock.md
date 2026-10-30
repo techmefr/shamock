@@ -12,7 +12,7 @@ function parseMock<TResource extends MockableResource>(
 ): Promise<unknown>
 ```
 
-Validates a single value against `resource.schema` (any [Standard Schema](https://standardschema.dev) validator) and returns the parsed result. Async because Standard Schema's `validate()` may return a `Promise`. Throws (joining every issue's `message` with `; `) if the value fails validation.
+Validates a single value against `resource.schema` (any [Standard Schema](https://standardschema.dev) validator) and returns the parsed result. Async because Standard Schema's `validate()` may return a `Promise`. Throws `MockValidationError` if validation fails. The error exposes the original `issues`, includes field paths in its message, and carries an `index` for an invalid list item.
 
 ## `parseMockList(resource, mock)`
 
@@ -35,9 +35,9 @@ Spins up a [MirageJS](https://miragejs.com) server (dynamically imported — `mi
 
 | Route | Behavior |
 |-------|----------|
-| `POST /{baseUrl}/{resource}/search` | Returns `{ data: <all seeded records>, meta: null }`. |
-| `POST /{baseUrl}/{resource}/mutate` | Reads `{ mutate: [...] }` from the body; inserts records with no `id`, updates+returns records that have one. |
-| `DELETE /{baseUrl}/{resource}` | Reads `{ id }` from the body and removes that record. |
+| `POST /{baseUrl}/{resource}/search` | Applies filters and sorts, then optional `limit`/`page` pagination. Returns `{ data }`, plus pagination `meta` when a limit is supplied. |
+| `POST /{baseUrl}/{resource}/mutate` | Accepts `{ mutate: [...] }` with Lomkit create/update operations (`operation`, `attributes`, and `key` for updates), or flat records with an optional `id`. |
+| `DELETE /{baseUrl}/{resource}` | Accepts `{ resources: [id, ...] }` or `{ id }` and removes matching records. |
 
 `config`:
 
@@ -45,6 +45,8 @@ Spins up a [MirageJS](https://miragejs.com) server (dynamically imported — `mi
 |-------|------|-------|
 | `baseUrl` | `string` | Used as Mirage's `urlPrefix`, so seeded routes match your driver's configured base URL. |
 | `seed` | `MirageResourceSeed` (`{ [resourceName]: object[] }`) | Initial data per resource; also determines which resources get routes. |
+| `resources` | `Record<string, MockableResource>` | Optional schemas for validating seed data before the server starts. |
+| `timing` | `number` | Mock response delay in milliseconds; defaults to 300. |
 
 ## Types
 
@@ -52,4 +54,8 @@ Spins up a [MirageJS](https://miragejs.com) server (dynamically imported — `mi
 |------|------|
 | `MockableResource` | `{ schema: StandardSchemaV1 }` — the minimal shape `parseMock`/`parseMockList` accept. Any `nexdk` resource (from `defineResource`) already satisfies this. |
 | `MirageResourceSeed` | `{ [resourceName: string]: Record<string, unknown>[] }` — the seed data shape `setupMirageMock` expects. |
-| `MirageSdkConfig` | `{ baseUrl: string, seed: MirageResourceSeed }` — `setupMirageMock`'s config. |
+| `MirageSdkConfig` | `{ baseUrl: string, seed: MirageResourceSeed, resources?: Record<string, MockableResource>, timing?: number }` — `setupMirageMock`'s config. |
+
+## `MockValidationError`
+
+Extends `Error` and exposes `issues` plus an optional zero-based list `index`. Use `instanceof MockValidationError` to distinguish fixture validation failures from other errors.
