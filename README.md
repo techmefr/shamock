@@ -1,5 +1,18 @@
 <p align="center">
-  <a href="https://techmefr.github.io/shamock/"><img src="docs/public/logo.png" alt="shamock" width="640"></a>
+  <a href="https://techmefr.github.io/shamock/"><img src="docs/public/banner.svg" alt="shamock" width="100%"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/techmefr/shamock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/techmefr/shamock/ci.yml?branch=main&amp;style=flat-square"></a>
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-typed-3178c6?style=flat-square">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="https://techmefr.github.io/shamock/"><b>Documentation</b></a> ·
+  <a href="https://techmefr.github.io/shamock/getting-started/">Quickstart</a> ·
+  <a href="https://techmefr.github.io/shamock/reference/shamock/">API reference</a> ·
+  <a href="#ecosystem">Ecosystem</a>
 </p>
 
 # shamock
@@ -12,6 +25,15 @@ ArkType…) so your offline and test data can't drift from the real shape.
 Optional MirageJS server for full network interception.
 
 > **Keywords** — `mock` · `mocking` · `fixtures` · `mock-data` · `schema-validation` · `standard-schema` · `typescript` · `zod` · `valibot` · `arktype` · `miragejs` · `offline` · `fallback` · `testing`
+
+## Why shamock
+
+| Feature | What you get |
+|---|---|
+| **Real schemas** | Validate fixture data with any Standard Schema validator. |
+| **Actionable errors** | MockValidationError reports original issues, field paths and list indexes. |
+| **Async validation** | Single records and lists support asynchronous validators. |
+| **Optional mock server** | MirageJS serves search, mutation and deletion routes from seed data. |
 
 ## Install
 
