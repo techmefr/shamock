@@ -36,7 +36,7 @@ describe('installMock serving', () => {
             search: { filters: [{ field: 'name', operator: 'like', value: 'a%' }] },
         })
         expect(search.ok).toBe(true)
-        expect(((await search.json()) as { data: unknown[] }).data).toEqual([{ id: '1', name: 'Ann' }])
+        expect(((await search.json()) as { data: unknown[] }).data).toEqual([{ id: 1, name: 'Ann' }])
 
         const created = await send('POST', 'http://api.test/users/mutate', {
             mutate: [{ operation: 'create', attributes: { id: 3, name: 'Cleo' } }],
@@ -45,7 +45,7 @@ describe('installMock serving', () => {
 
         expect((await send('DELETE', 'http://api.test/users', { resources: ['1'] })).ok).toBe(true)
         const after = await send('POST', 'http://api.test/users/search', {})
-        expect(((await after.json()) as { data: { id: string }[] }).data.map(user => user.id)).toEqual(['2', '3'])
+        expect(((await after.json()) as { data: { id: number }[] }).data.map(user => user.id)).toEqual([2, 3])
     })
 
     it('returns 422 on an invalid body', async () => {
@@ -129,7 +129,7 @@ describe('createMock', () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1, name: 'Ann' }] } })
         expect(globalThis.fetch).toBe(before)
         const response = await mock.fetch('http://api.test/users/search', { method: 'POST', body: '{}' })
-        expect(((await response.json()) as { data: unknown[] }).data).toEqual([{ id: '1', name: 'Ann' }])
+        expect(((await response.json()) as { data: unknown[] }).data).toEqual([{ id: 1, name: 'Ann' }])
     })
 
     it('handle takes a Request directly', async () => {
@@ -156,7 +156,7 @@ describe('createMock', () => {
         const del = await mock.fetch('http://api.test/users', { method: 'DELETE', body: JSON.stringify({ resources: [1] }) })
         expect(del.status).toBe(200)
         const list = await mock.fetch('http://api.test/users/search', { method: 'POST', body: '{}' })
-        expect(((await list.json()) as { data: unknown[] }).data).toEqual([{ id: '2' }])
+        expect(((await list.json()) as { data: unknown[] }).data).toEqual([{ id: 2 }])
         expect((await mock.fetch('http://api.test/nope/search', { method: 'POST', body: '{}' })).status).toBe(404)
     })
 
@@ -167,8 +167,8 @@ describe('createMock', () => {
             method: 'POST',
             body: JSON.stringify({ page: 2, limit: 2 }),
         })
-        const result = (await response.json()) as { data: { id: string }[]; meta?: { total: number } }
-        expect(result.data.map(user => user.id)).toEqual(['3', '4'])
+        const result = (await response.json()) as { data: { id: number }[]; meta?: { total: number } }
+        expect(result.data.map(user => user.id)).toEqual([3, 4])
         expect(result.meta?.total).toBe(5)
     })
 })

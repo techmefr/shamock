@@ -18,16 +18,16 @@ afterEach(() => {
 describe('resource names', () => {
     it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])('handles a resource named %s', async name => {
         const seed = JSON.parse(`{"${name}":[{"id":1}]}`) as Record<string, Record<string, unknown>[]>
-        const resources = { users: { schema: z.object({ id: z.number() }) } }
+        const resources = { [name]: { schema: z.object({ id: z.number() }) } }
         const mock = await createMock({ ...base, seed, resources })
-        expect(await rows(await post(mock, `${name}/search`))).toEqual([{ id: '1' }])
-        expect((await post(mock, 'users/search')).status).toBe(404)
+        expect(await rows(await post(mock, `${name}/search`))).toEqual([{ id: 1 }])
+        expect((await post(mock, 'other/search')).status).toBe(404)
         expect(Object.hasOwn(Object.prototype, 'id')).toBe(false)
     })
 
     it('does not use inherited resources for validation', async () => {
         const mock = await createMock({ ...base, seed: { constructor: [{ id: 1 }] }, resources: {} })
-        expect(await rows(await post(mock, 'constructor/search'))).toEqual([{ id: '1' }])
+        expect(await rows(await post(mock, 'constructor/search'))).toEqual([{ id: 1 }])
     })
 
     it('answers 404 for inherited names that are not resources', async () => {
@@ -41,7 +41,7 @@ describe('resource names', () => {
         const names = ['my users', 'é', 'a/b', '[x]']
         const mock = await createMock({ ...base, seed: Object.fromEntries(names.map(name => [name, [{ id: 1, name }]])) })
         for (const name of names) {
-            expect(await rows(await post(mock, `${encodeURIComponent(name)}/search`))).toEqual([{ id: '1', name }])
+            expect(await rows(await post(mock, `${encodeURIComponent(name)}/search`))).toEqual([{ id: 1, name }])
         }
         expect((await post(mock, 'a/b/search')).status).toBe(404)
     })
@@ -56,7 +56,7 @@ describe('ids', () => {
         const response = await create(mock, { id: '1', name: 'Dup' })
         expect(response.status).toBe(422)
         expect(((await response.json()) as { message: string }).message).toContain('already exists')
-        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: '1', name: 'Ann' }])
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1, name: 'Ann' }])
     })
 
     it.each([[{ a: 1 }], [[1]], [true], ['']])('rejects the id %j', async id => {
@@ -192,7 +192,7 @@ describe('passthrough', () => {
     it('handles a Request aimed at baseUrl', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }] } })
         const response = await mock.fetch(new Request('http://api.test/users/search', { method: 'POST', body: '{}' }))
-        expect(await rows(response)).toEqual([{ id: '1' }])
+        expect(await rows(response)).toEqual([{ id: 1 }])
     })
 })
 
@@ -223,7 +223,7 @@ describe('routing and behavior', () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }, { id: 2 }] } })
         const del = await mock.fetch('http://api.test/users/', { method: 'DELETE', body: JSON.stringify({ resources: [1] }) })
         expect(del.status).toBe(200)
-        expect(await rows(await post(mock, 'users/search/'))).toEqual([{ id: '2' }])
+        expect(await rows(await post(mock, 'users/search/'))).toEqual([{ id: 2 }])
     })
 
     it('answers 404 for a GET and for unknown actions', async () => {
@@ -245,14 +245,14 @@ describe('routing and behavior', () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }] } })
         expect((await mock.fetch('http://api.test/users/mutate', { method: 'POST' })).status).toBe(422)
         expect((await mock.fetch('http://api.test/users', { method: 'DELETE' })).status).toBe(422)
-        expect(await rows(await mock.fetch('http://api.test/users/search', { method: 'POST' }))).toEqual([{ id: '1' }])
+        expect(await rows(await mock.fetch('http://api.test/users/search', { method: 'POST' }))).toEqual([{ id: 1 }])
     })
 
     it('updating an unknown key returns null and creates nothing', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }] } })
         const response = await post(mock, 'users/mutate', { mutate: [{ operation: 'update', key: 99, attributes: { a: 1 } }] })
         expect(((await response.json()) as { data: unknown[] }).data).toEqual([null])
-        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: '1' }])
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1 }])
     })
 
     it('a partial update keeps the other fields and the id', async () => {
@@ -260,13 +260,13 @@ describe('routing and behavior', () => {
         const response = await post(mock, 'users/mutate', {
             mutate: [{ operation: 'update', key: 1, attributes: { age: 31, id: 'hack' } }],
         })
-        expect(await rows(response)).toEqual([{ id: '1', name: 'Ann', age: 31 }])
+        expect(await rows(response)).toEqual([{ id: 1, name: 'Ann', age: 31 }])
     })
 
     it('works with a baseUrl that has a path', async () => {
         const mock = await createMock({ baseUrl: 'http://api.test/v1/', timing: 0, seed: { users: [{ id: 1 }] } })
         const list = await mock.fetch('http://api.test/v1/users/search', { method: 'POST', body: '{}' })
-        expect(await rows(list)).toEqual([{ id: '1' }])
+        expect(await rows(list)).toEqual([{ id: 1 }])
         expect((await mock.handle(new Request('http://api.test/users/search', { method: 'POST' }))).status).toBe(404)
         expect((await mock.handle(new Request('http://api.test/v10/users/search', { method: 'POST' }))).status).toBe(404)
     })
@@ -276,7 +276,7 @@ describe('routing and behavior', () => {
         const mock = await createMock({ ...base, seed })
         seed.users[0]!.profile.city = 'Lyon'
         seed.users.push({ id: 2, profile: { city: 'Nice' } })
-        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: '1', profile: { city: 'Paris' } }])
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1, profile: { city: 'Paris' } }])
     })
 
     it('waits 300 ms by default', async () => {
