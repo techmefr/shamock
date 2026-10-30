@@ -1,16 +1,18 @@
-import { idsToRemove, mutationsOf, parseJsonBody, toMutation } from './mirage-body.ts'
-import { applySearch, searchOf } from './mirage-search.ts'
-import type { SearchRecord } from './mirage-search.ts'
+import { HttpError } from './http-error.ts'
+import { isRecord, own } from './record.ts'
+import { idsToRemove, mutationsOf, parseJsonBody, toMutation } from './request-body.ts'
+import { applySearch, searchOf } from './search.ts'
+import type { SearchRecord } from './search.ts'
 import { parseMockList } from './parse-mock.ts'
 import type { MockableResource } from './parse-mock.ts'
 
-export interface MirageResourceSeed {
+export interface MockSeed {
     [resourceName: string]: Record<string, unknown>[]
 }
 
-export interface MirageSdkConfig {
+export interface MockConfig {
     baseUrl: string
-    seed: MirageResourceSeed
+    seed: MockSeed
     resources?: Record<string, MockableResource>
     timing?: number
 }
@@ -23,41 +25,71 @@ export interface Mock {
     install: () => InstalledMock
 }
 
-export interface InstalledMock {
-    handle: (request: Request) => Promise<Response>
-    fetch: FetchLike
+export interface InstalledMock extends Mock {
     restore: () => void
-    shutdown: () => void
 }
+
+interface Installation {
+    previous: FetchLike
+    active: boolean
+}
+
+const installations: Installation[] = []
 
 const INVALID_BODY = { message: 'Invalid JSON body', errors: {} }
 
 const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+const wait = (ms: number, signal: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject) => {
+        const onAbort = (): void => {
+            clearTimeout(timer)
+            reject(signal.reason)
+        }
+        const timer = setTimeout(() => {
+            signal.removeEventListener('abort', onAbort)
+            resolve()
+        }, ms)
+        signal.addEventListener('abort', onAbort, { once: true })
+    })
+
+const toId = (value: unknown): string => {
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+    if (typeof value === 'string' && value !== '') return value
+    throw new HttpError(422, 'Invalid id: expected a non-empty string or a number')
+}
 
 function createStore(items: Record<string, unknown>[]) {
     const rows = new Map<string, SearchRecord>()
     let nextId = 1
 
-    const insert = (attributes: Record<string, unknown>): SearchRecord => {
-        const given = attributes['id']
-        const id = given === undefined || given === null ? String(nextId) : String(given)
+    const insert = (attributes: unknown): SearchRecord => {
+        if (!isRecord(attributes)) throw new HttpError(422, 'Invalid record: expected an object')
+        const given = own(attributes, 'id')
+        let id: string
+        if (given === undefined || given === null) {
+            while (rows.has(String(nextId))) nextId++
+            if (!Number.isSafeInteger(nextId)) throw new HttpError(422, 'No id available')
+            id = String(nextId)
+        } else {
+            id = toId(given)
+            if (rows.has(id)) throw new HttpError(422, `Record "${id}" already exists`)
+        }
         const numeric = Number(id)
-        if (Number.isInteger(numeric) && numeric >= nextId) nextId = numeric + 1
+        if (Number.isSafeInteger(numeric) && String(numeric) === id && numeric >= nextId) nextId = numeric + 1
         const record = { ...attributes, id }
         rows.set(id, record)
         return { ...record }
     }
 
-    items.forEach(insert)
+    items.forEach(item => insert(structuredClone(item)))
 
     return {
         all: (): SearchRecord[] => [...rows.values()].map(record => ({ ...record })),
         insert,
         update(key: unknown, attributes: Record<string, unknown>): SearchRecord | null {
-            const id = String(key)
+            const id = toId(key)
             const current = rows.get(id)
             if (current === undefined) return null
             const record = { ...current, ...attributes, id }
@@ -65,45 +97,63 @@ function createStore(items: Record<string, unknown>[]) {
             return { ...record }
         },
         remove(key: unknown): void {
-            rows.delete(String(key))
+            rows.delete(toId(key))
         },
     }
 }
 
-async function validatedSeed(config: MirageSdkConfig): Promise<MirageResourceSeed> {
+async function validatedSeed(config: MockConfig): Promise<Map<string, Record<string, unknown>[]>> {
     const resources = config.resources
-    if (resources === undefined) return config.seed
-    const seed: MirageResourceSeed = {}
+    const seed = new Map<string, Record<string, unknown>[]>()
     for (const [name, items] of Object.entries(config.seed)) {
-        const resource = resources[name]
-        seed[name] = resource ? ((await parseMockList(resource, items)) as Record<string, unknown>[]) : items
+        const resource = resources !== undefined && Object.hasOwn(resources, name) ? resources[name] : undefined
+        seed.set(name, resource ? ((await parseMockList(resource, items)) as Record<string, unknown>[]) : items)
     }
     return seed
 }
 
-export async function createMock(config: MirageSdkConfig): Promise<Mock> {
+const decodeName = (segment: string): string => {
+    try {
+        return decodeURIComponent(segment)
+    } catch {
+        return segment
+    }
+}
+
+const urlOf = (input: RequestInfo | URL): URL | undefined => {
+    if (input instanceof URL) return input
+    try {
+        return new URL(typeof input === 'string' ? input : input.url)
+    } catch {
+        return undefined
+    }
+}
+
+export async function createMock(config: MockConfig): Promise<Mock> {
     const seed = await validatedSeed(config)
-    const stores = new Map(Object.entries(seed).map(([name, items]) => [encodeURIComponent(name), createStore(items)]))
+    const stores = new Map([...seed].map(([name, items]) => [name, createStore(items)]))
     const base = new URL(config.baseUrl)
     const basePath = base.pathname.replace(/\/+$/, '')
     const timing = config.timing ?? 300
-    const original: FetchLike = globalThis.fetch?.bind(globalThis)
 
-    const pathOf = (url: URL): string | undefined => {
-        if (url.origin !== base.origin) return undefined
+    const pathOf = (url: URL | undefined): string | undefined => {
+        if (url === undefined || url.origin !== base.origin) return undefined
         if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) return undefined
         return url.pathname.slice(basePath.length)
     }
 
     const route = async (method: string, path: string, request: Request): Promise<Response> => {
-        const [, name = '', action] = path.split('/')
-        const store = stores.get(name)
-        if (store === undefined) return json({ message: 'Not found' }, 404)
-        const body = parseJsonBody(await request.text())
+        const [, rawName = '', action, extra] = path.replace(/\/+$/, '').split('/')
+        const store = stores.get(decodeName(rawName))
+        if (store === undefined || extra !== undefined) return json({ message: 'Not found' }, 404)
 
-        if (method === 'POST' && action === 'search') return json(applySearch(store.all(), searchOf(body)))
+        if (method === 'POST' && action === 'search') {
+            const body = parseJsonBody(await request.text())
+            return json(applySearch(store.all(), searchOf(body)))
+        }
 
         if (method === 'POST' && action === 'mutate') {
+            const body = parseJsonBody(await request.text())
             if (body === undefined) return json(INVALID_BODY, 422)
             const data = mutationsOf(body).map(operation => {
                 const mutation = toMutation(operation)
@@ -114,6 +164,7 @@ export async function createMock(config: MirageSdkConfig): Promise<Mock> {
         }
 
         if (method === 'DELETE' && action === undefined) {
+            const body = parseJsonBody(await request.text())
             if (body === undefined) return json(INVALID_BODY, 422)
             for (const id of idsToRemove(body)) store.remove(id)
             return json({ success: true })
@@ -123,32 +174,47 @@ export async function createMock(config: MirageSdkConfig): Promise<Mock> {
     }
 
     const handle = async (request: Request): Promise<Response> => {
-        const path = pathOf(new URL(request.url))
+        const path = pathOf(urlOf(request.url))
         if (path === undefined) return json({ message: 'Not found' }, 404)
-        if (timing > 0) await wait(timing)
-        return route(request.method.toUpperCase(), path, request)
+        try {
+            request.signal.throwIfAborted()
+            if (timing > 0) await wait(timing, request.signal)
+            return await route(request.method.toUpperCase(), path, request)
+        } catch (error) {
+            if (error instanceof HttpError) return json({ message: error.message, errors: {} }, error.status)
+            throw error
+        }
     }
 
-    const mockFetch: FetchLike = async (input, init) => {
-        const request = new Request(input, init)
-        if (pathOf(new URL(request.url)) === undefined) return original(input, init)
-        return handle(request)
+    const serve = (next: () => FetchLike): FetchLike => {
+        return (input, init) => {
+            if (pathOf(urlOf(input)) === undefined) return next().call(globalThis, input, init)
+            return handle(new Request(input, init))
+        }
     }
 
     const install = (): InstalledMock => {
-        const previous = globalThis.fetch
+        const installation: Installation = { previous: globalThis.fetch, active: true }
+        const served = serve(() => installation.previous)
+        const mockFetch: FetchLike = (input, init) =>
+            installation.active ? served(input, init) : installation.previous.call(globalThis, input, init)
+        installations.push(installation)
         globalThis.fetch = mockFetch
         const restore = (): void => {
-            if (globalThis.fetch === mockFetch) globalThis.fetch = previous
+            const index = installations.indexOf(installation)
+            if (index === -1) return
+            installations.splice(index, 1)
+            installation.active = false
+            const above = installations.find(other => other.previous === mockFetch)
+            if (above !== undefined) above.previous = installation.previous
+            else if (globalThis.fetch === mockFetch) globalThis.fetch = installation.previous
         }
-        return { handle, fetch: mockFetch, restore, shutdown: restore }
+        return { handle, fetch: mockFetch, install, restore }
     }
 
-    return { handle, fetch: mockFetch, install }
+    return { handle, fetch: serve(() => globalThis.fetch), install }
 }
 
-export async function installMock(config: MirageSdkConfig): Promise<InstalledMock> {
+export async function installMock(config: MockConfig): Promise<InstalledMock> {
     return (await createMock(config)).install()
 }
-
-export const setupMirageMock = installMock

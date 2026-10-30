@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applySearch, searchOf } from '../src/mirage-search.ts'
+import { applySearch, searchOf } from '../src/search.ts'
 
 const users = [
     { id: 1, name: 'Ann', age: 30, city: 'Paris' },

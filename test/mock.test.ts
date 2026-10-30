@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createMock, installMock, setupMirageMock } from '../src/mock.ts'
+import { createMock, installMock } from '../src/mock.ts'
 import type { InstalledMock } from '../src/mock.ts'
 
 const installed: InstalledMock[] = []
@@ -9,8 +9,8 @@ afterEach(() => {
     while (installed.length > 0) installed.pop()?.restore()
 })
 
-async function start(config: Parameters<typeof setupMirageMock>[0]): Promise<InstalledMock> {
-    const server = await setupMirageMock(config)
+async function start(config: Parameters<typeof installMock>[0]): Promise<InstalledMock> {
+    const server = await installMock(config)
     installed.push(server)
     return server
 }
@@ -25,7 +25,7 @@ function send(method: string, url: string, body: unknown): Promise<Response> {
 
 const base = { baseUrl: 'http://api.test', timing: 0 }
 
-describe('setupMirageMock', () => {
+describe('installMock serving', () => {
     it('serves search, mutate and delete under the url prefix', async () => {
         await start({
             baseUrl: 'http://api.test',
@@ -58,18 +58,26 @@ describe('setupMirageMock', () => {
 
     it('does not pollute Object.prototype through a __proto__ key', async () => {
         await start({ baseUrl: 'http://api.test', timing: 0, seed: { users: [] } })
-        await send(
+        const response = await send(
             'POST',
             'http://api.test/users/mutate',
             '{"mutate":[{"operation":"create","attributes":{"__proto__":{"polluted":true},"name":"x"}}]}',
         )
+        const text = await response.text()
+        expect(response.status).toBe(200)
+        expect(text).not.toContain('__proto__')
+        expect(text).not.toContain('polluted')
+        expect(JSON.parse(text)).toEqual({ data: [{ id: '1', name: 'x' }] })
+        expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
         expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
+        const list = await send('POST', 'http://api.test/users/search', {})
+        expect(await list.text()).not.toContain('polluted')
     })
 
     it('validates the seed through resources', async () => {
         const resources = { users: { schema: z.object({ id: z.number(), name: z.string() }) } }
         await expect(
-            setupMirageMock({ baseUrl: 'http://api.test', timing: 0, resources, seed: { users: [{ id: 'x', name: 1 }] } }),
+            installMock({ baseUrl: 'http://api.test', timing: 0, resources, seed: { users: [{ id: 'x', name: 1 }] } }),
         ).rejects.toThrow()
         await start({ baseUrl: 'http://api.test', timing: 0, resources, seed: { users: [{ id: 1, name: 'A' }] } })
     })
@@ -81,13 +89,6 @@ describe('installMock', () => {
         const mock = await installMock({ ...base, seed: { users: [] } })
         expect(globalThis.fetch).not.toBe(before)
         mock.restore()
-        expect(globalThis.fetch).toBe(before)
-    })
-
-    it('shutdown is an alias of restore', async () => {
-        const before = globalThis.fetch
-        const mock = await setupMirageMock({ ...base, seed: { users: [] } })
-        mock.shutdown()
         expect(globalThis.fetch).toBe(before)
     })
 

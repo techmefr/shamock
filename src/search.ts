@@ -1,3 +1,8 @@
+import { HttpError } from './http-error.ts'
+import { isRecord, own } from './record.ts'
+
+const MAX_NESTING = 10
+
 export type SearchRecord = Record<string, unknown>
 
 export interface SearchFilter {
@@ -77,13 +82,14 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
     }
 }
 
+
 function matches(record: SearchRecord, filters: SearchFilter[]): boolean {
     let result = true
     filters.forEach((filter, index) => {
         const current =
             filter.nested !== undefined
                 ? matches(record, filter.nested)
-                : compare(record[filter.field ?? ''], filter.operator ?? '=', filter.value)
+                : compare(own(record, filter.field ?? ''), filter.operator ?? '=', filter.value)
         if (index === 0) result = current
         else if (filter.type === 'or') result = result || current
         else result = result && current
@@ -96,8 +102,8 @@ function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord
     return [...records].sort((a, b) => {
         for (const sort of sorts) {
             const field = sort.field ?? ''
-            const left = a[field]
-            const right = b[field]
+            const left = own(a, field)
+            const right = own(b, field)
             const leftMissing = left === undefined || left === null
             const rightMissing = right === undefined || right === null
             if (leftMissing && rightMissing) continue
@@ -111,21 +117,60 @@ function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord
     })
 }
 
+const invalid = (what: string): HttpError => new HttpError(422, `Invalid search: ${what}`)
+
+function optionalString(item: Record<string, unknown>, key: string): string | undefined {
+    const value = own(item, key)
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') throw invalid(`"${key}" must be a string`)
+    return value
+}
+
+function listOf(value: unknown, what: string): Record<string, unknown>[] {
+    if (value === undefined) return []
+    if (!Array.isArray(value)) throw invalid(`"${what}" must be an array`)
+    return value.map(item => {
+        if (!isRecord(item)) throw invalid(`"${what}" items must be objects`)
+        return item
+    })
+}
+
+function filtersOf(value: unknown, depth = 0): SearchFilter[] {
+    if (depth > MAX_NESTING) throw invalid('filters are nested too deeply')
+    return listOf(value, 'filters').map(item => {
+        const nested = own(item, 'nested')
+        return {
+            field: optionalString(item, 'field'),
+            operator: optionalString(item, 'operator'),
+            type: optionalString(item, 'type'),
+            value: own(item, 'value'),
+            nested: nested === undefined ? undefined : filtersOf(nested, depth + 1),
+        }
+    })
+}
+
+function sortsOf(value: unknown): SearchSort[] {
+    return listOf(value, 'sorts').map(item => ({
+        field: optionalString(item, 'field'),
+        direction: optionalString(item, 'direction'),
+    }))
+}
+
 export function searchOf(body: Record<string, unknown> | undefined): Record<string, unknown> {
-    const nested = body?.['search']
-    if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
-        return nested as Record<string, unknown>
-    }
-    return body ?? {}
+    if (body === undefined) return {}
+    const nested = own(body, 'search')
+    return isRecord(nested) ? nested : body
 }
 
 export function applySearch(records: SearchRecord[], search: Record<string, unknown>): SearchResult {
-    const filters = Array.isArray(search['filters']) ? (search['filters'] as SearchFilter[]) : []
-    const sorts = Array.isArray(search['sorts']) ? (search['sorts'] as SearchSort[]) : []
+    const filters = filtersOf(own(search, 'filters'))
+    const sorts = sortsOf(own(search, 'sorts'))
     const filtered = sortRecords(records.filter(record => matches(record, filters)), sorts)
-    const limit = typeof search['limit'] === 'number' && search['limit'] > 0 ? Math.floor(search['limit']) : undefined
+    const rawLimit = own(search, 'limit')
+    const rawPage = own(search, 'page')
+    const limit = typeof rawLimit === 'number' && rawLimit > 0 ? Math.floor(rawLimit) : undefined
     if (limit === undefined) return { data: filtered }
-    const page = typeof search['page'] === 'number' && search['page'] > 0 ? Math.floor(search['page']) : 1
+    const page = typeof rawPage === 'number' && rawPage > 0 ? Math.floor(rawPage) : 1
     return {
         data: filtered.slice((page - 1) * limit, page * limit),
         meta: {

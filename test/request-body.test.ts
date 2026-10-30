@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { idsToRemove, mutationsOf, parseJsonBody, toMutation } from '../src/mirage-body.ts'
+import { idsToRemove, mutationsOf, parseJsonBody, toMutation } from '../src/request-body.ts'
 
 describe('parseJsonBody', () => {
     it('parses a JSON object', () => {
