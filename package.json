@@ -1,7 +1,7 @@
 {
     "name": "shamock",
     "version": "0.0.1",
-    "description": "Schema-driven mock/fallback engine — validate fixtures against any Standard Schema (Zod, Valibot, ArkType…), optional MirageJS server.",
+    "description": "Schema-driven mock/fallback engine — validate fixtures against any Standard Schema (Zod, Valibot, ArkType…).",
     "type": "module",
     "license": "MIT",
     "author": "techmefr",
@@ -15,7 +15,6 @@
         "mock",
         "fixture",
         "standard-schema",
-        "miragejs",
         "offline",
         "fallback",
         "mocking",
@@ -49,16 +48,7 @@
         "typecheck": "tsc --noEmit",
         "dev": "unbuild --stub"
     },
-    "peerDependencies": {
-        "miragejs": "^0.1.47"
-    },
-    "peerDependenciesMeta": {
-        "miragejs": {
-            "optional": true
-        }
-    },
     "devDependencies": {
-        "miragejs": "^0.1.47",
         "typescript": "^5.9.3",
         "unbuild": "^3.6.1",
         "vitest": "^5.0.5",

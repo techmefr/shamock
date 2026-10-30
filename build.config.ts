@@ -6,5 +6,5 @@ export default defineBuildConfig({
     rollup: {
         emitCJS: false,
     },
-    externals: ['zod', 'miragejs'],
+    externals: ['zod'],
 })
