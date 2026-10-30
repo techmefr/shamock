@@ -1,7 +1,3 @@
-// Minimal Standard Schema v1 contract (https://standardschema.dev), copied
-// verbatim per the spec's own guidance instead of adding a dependency. The
-// same copy lives in nexdk — shamock keeps its own so it never depends on
-// nexdk's types, matching MockableResource's existing standalone design.
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
     readonly '~standard': StandardSchemaV1.Props<Input, Output>
 }
