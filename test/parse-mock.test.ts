@@ -44,3 +44,30 @@ describe('parseMockList', () => {
         await expect(parseMockList(resource, [{ id: 'nope', name: 'Alice' }])).rejects.toThrow()
     })
 })
+
+describe('validation errors', () => {
+    it('names the failing field and the list index', async () => {
+        const bad = { id: 1, name: 'Bob', email: 'nope' }
+
+        await expect(parseMockList(resource, [{ id: 2, name: 'Ann', email: "a@test.com" }, bad])).rejects.toMatchObject({
+            name: 'MockValidationError',
+            index: 1,
+            message: expect.stringContaining('email'),
+        })
+    })
+
+    it('aggregates several issues in one message', async () => {
+        await expect(parseMock(resource, { id: 'x', name: 3, email: "a@test.com" })).rejects.toThrow(/id: .*; name: /)
+    })
+
+    it('accepts a validator that resolves asynchronously and an empty list', async () => {
+        const asyncResource = {
+            schema: {
+                "~standard": { version: 1 as const, vendor: 'test', validate: async (value: unknown) => ({ value }) },
+            },
+        }
+
+        await expect(parseMock(asyncResource, { ok: true })).resolves.toEqual({ ok: true })
+        await expect(parseMockList(asyncResource, [])).resolves.toEqual([])
+    })
+})
