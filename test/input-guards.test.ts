@@ -19,9 +19,9 @@ describe('request body guards', () => {
         expect(() => idsToRemove({ resources: many })).toThrow('Too many')
     })
 
-    it('drops unsafe keys at any depth', () => {
-        const parsed = parseJsonBody('{"__proto__":{"a":1},"x":[{"constructor":1,"y":2}],"prototype":3}')
-        expect(parsed).toEqual({ x: [{ y: 2 }] })
+    it('drops __proto__ keys at any depth and keeps other keys', () => {
+        const parsed = parseJsonBody('{"__proto__":{"a":1},"x":[{"__proto__":1,"constructor":1,"y":2}],"prototype":3}')
+        expect(parsed).toEqual({ x: [{ constructor: 1, y: 2 }], prototype: 3 })
         expect(Object.hasOwn(parsed ?? {}, '__proto__')).toBe(false)
     })
 })

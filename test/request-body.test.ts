@@ -19,10 +19,13 @@ describe('mutationsOf', () => {
         expect(mutationsOf({ mutate: [{ id: 1 }, { name: 'x' }] })).toEqual([{ id: 1 }, { name: 'x' }])
     })
 
-    it('ignores a missing or malformed list, non-object items and arrays', () => {
+    it('returns nothing for a missing list', () => {
         expect(mutationsOf(undefined)).toEqual([])
-        expect(mutationsOf({ mutate: 'no' })).toEqual([])
-        expect(mutationsOf({ mutate: [1, null, [1], { ok: true }] })).toEqual([{ ok: true }])
+        expect(mutationsOf({})).toEqual([])
+    })
+
+    it.each([['no'], [{}], [[1]], [[null]], [[[1]]], [['x']]])('throws a 422 for the malformed list %j', mutate => {
+        expect(() => mutationsOf({ mutate })).toThrow(expect.objectContaining({ status: 422 }))
     })
 })
 
@@ -55,5 +58,13 @@ describe('toMutation', () => {
 
     it('falls back to a create for an update without a key', () => {
         expect(toMutation({ operation: 'update', attributes: { name: 'e' } }).kind).toBe('create')
+    })
+})
+
+describe('toMutation operations', () => {
+    it.each(['delete', 'remove', '', null, 3])('rejects the unsupported operation %j with a 422', operation => {
+        expect(() => toMutation({ operation, attributes: { name: 'x' } })).toThrow(
+            expect.objectContaining({ status: 422, message: 'Unsupported operation' }),
+        )
     })
 })
