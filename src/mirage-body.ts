@@ -1,10 +1,22 @@
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value)
 
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+function stripUnsafeKeys(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(stripUnsafeKeys)
+    if (!isRecord(value)) return value
+    const clean: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value)) {
+        if (!UNSAFE_KEYS.has(key)) clean[key] = stripUnsafeKeys(child)
+    }
+    return clean
+}
+
 export function parseJsonBody(raw: unknown): Record<string, unknown> | undefined {
     if (typeof raw !== 'string' || raw === '') return undefined
     try {
-        const parsed: unknown = JSON.parse(raw)
+        const parsed: unknown = stripUnsafeKeys(JSON.parse(raw))
         return isRecord(parsed) ? parsed : undefined
     } catch {
         return undefined

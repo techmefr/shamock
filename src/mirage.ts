@@ -16,7 +16,7 @@ export interface MirageSdkConfig {
 }
 
 interface MirageDb {
-    all: () => SearchRecord[]
+    where: (query: Record<string, unknown>) => SearchRecord[]
     insert: (record: unknown) => unknown
     update: (id: unknown, record: unknown) => unknown
     find: (id: unknown) => unknown
@@ -62,7 +62,7 @@ export async function setupMirageMock(config: MirageSdkConfig): Promise<unknown>
 
                 this.post(`/${path}/search`, (schema, request) => {
                     const body = parseJsonBody(request.requestBody)
-                    return applySearch(dbFor(schema).all(), searchOf(body))
+                    return applySearch(dbFor(schema).where({}), searchOf(body))
                 })
 
                 this.post(`/${path}/mutate`, (schema, request) => {
