@@ -25,9 +25,29 @@ export interface SearchResult {
     meta?: SearchMeta
 }
 
-function likeToRegExp(pattern: string): RegExp {
-    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')
-    return new RegExp(`^${escaped}$`, 'i')
+function likeMatch(value: string, pattern: string): boolean {
+    const text = value.toLowerCase()
+    const glob = pattern.toLowerCase()
+    let t = 0
+    let p = 0
+    let star = -1
+    let mark = 0
+    while (t < text.length) {
+        if (p < glob.length && glob[p] === '%') {
+            star = p++
+            mark = t
+        } else if (p < glob.length && (glob[p] === '_' || glob[p] === text[t])) {
+            p++
+            t++
+        } else if (star >= 0) {
+            p = star + 1
+            t = ++mark
+        } else {
+            return false
+        }
+    }
+    while (p < glob.length && glob[p] === '%') p++
+    return p === glob.length
 }
 
 function compare(left: unknown, operator: string, right: unknown): boolean {
@@ -45,9 +65,9 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
         case '<=':
             return (left as number) <= (right as number)
         case 'like':
-            return likeToRegExp(String(right)).test(String(left))
+            return likeMatch(String(left), String(right))
         case 'not like':
-            return !likeToRegExp(String(right)).test(String(left))
+            return !likeMatch(String(left), String(right))
         case 'in':
             return Array.isArray(right) && right.includes(left)
         case 'not in':
@@ -76,10 +96,15 @@ function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord
     return [...records].sort((a, b) => {
         for (const sort of sorts) {
             const field = sort.field ?? ''
-            const left = a[field] as number | string
-            const right = b[field] as number | string
+            const left = a[field]
+            const right = b[field]
+            const leftMissing = left === undefined || left === null
+            const rightMissing = right === undefined || right === null
+            if (leftMissing && rightMissing) continue
+            if (leftMissing) return 1
+            if (rightMissing) return -1
             if (left === right) continue
-            const order = left > right ? 1 : -1
+            const order = (left as number | string) > (right as number | string) ? 1 : -1
             return sort.direction === 'desc' ? -order : order
         }
         return 0

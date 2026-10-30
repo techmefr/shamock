@@ -71,3 +71,28 @@ describe('applySearch', () => {
         expect(applySearch([{ name: 'a.b' }, { name: 'axb' }], { filters: [{ field: 'name', operator: 'like', value: 'a.b' }] }).data).toEqual([{ name: 'a.b' }])
     })
 })
+
+describe('like robustness and sorting', () => {
+    it('matches pathological patterns in linear-ish time', () => {
+        const text = 'a'.repeat(50000)
+        const start = Date.now()
+        const result = applySearch([{ v: text }], { filters: [{ field: 'v', operator: 'like', value: '%a%a%a%a%a%a%a%b' }] })
+        expect(result.data).toHaveLength(0)
+        expect(Date.now() - start).toBeLessThan(2000)
+    })
+
+    it('supports underscore, case insensitivity and anchors', () => {
+        const rows = [{ v: 'Hello' }, { v: 'help' }]
+        expect(applySearch(rows, { filters: [{ field: 'v', operator: 'like', value: 'hel_o' }] }).data).toEqual([{ v: 'Hello' }])
+        expect(applySearch(rows, { filters: [{ field: 'v', operator: 'like', value: 'HEL%' }] }).data).toHaveLength(2)
+        expect(applySearch(rows, { filters: [{ field: 'v', operator: 'not like', value: '%lp' }] }).data).toEqual([{ v: 'Hello' }])
+    })
+
+    it('sorts null and undefined last in both directions, keeping order stable', () => {
+        const rows = [{ id: 1 }, { id: 2, n: 5 }, { id: 3, n: null }, { id: 4, n: 1 }, { id: 5 }]
+        const asc = applySearch(rows, { sorts: [{ field: 'n', direction: 'asc' }] }).data.map(r => r['id'])
+        const desc = applySearch(rows, { sorts: [{ field: 'n', direction: 'desc' }] }).data.map(r => r['id'])
+        expect(asc).toEqual([4, 2, 1, 3, 5])
+        expect(desc).toEqual([2, 4, 1, 3, 5])
+    })
+})
