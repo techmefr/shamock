@@ -1,15 +1,15 @@
 {
-    "name": "chaff",
+    "name": "shamock",
     "version": "0.0.1",
     "description": "Schema-driven mock/fallback engine — validate fixtures against any Standard Schema (Zod, Valibot, ArkType…), optional MirageJS server.",
     "type": "module",
     "license": "MIT",
     "author": "techmefr",
     "packageManager": "pnpm@11.9.0",
-    "homepage": "https://github.com/techmefr/chaff#readme",
+    "homepage": "https://github.com/techmefr/shamock#readme",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/techmefr/chaff.git"
+        "url": "git+https://github.com/techmefr/shamock.git"
     },
     "keywords": [
         "mock",
@@ -17,7 +17,15 @@
         "standard-schema",
         "miragejs",
         "offline",
-        "fallback"
+        "fallback",
+        "mocking",
+        "mock-data",
+        "schema-validation",
+        "typescript",
+        "testing",
+        "zod",
+        "valibot",
+        "arktype"
     ],
     "sideEffects": false,
     "exports": {

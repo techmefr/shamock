@@ -1,12 +1,12 @@
 ---
 title: Pairing with nexdk
-description: Using chaff alongside an nexdk SDK for offline or test fixture data.
+description: Using shamock alongside an nexdk SDK for offline or test fixture data.
 ---
 
-`chaff` has **zero dependency on `nexdk`** — no driver or core function calls into it automatically. Mocking is an application-level choice, not something `nexdk` short-circuits into for you. If you want mock data, you validate and use it yourself, in your own code:
+`shamock` has **zero dependency on `nexdk`** — no driver or core function calls into it automatically. Mocking is an application-level choice, not something `nexdk` short-circuits into for you. If you want mock data, you validate and use it yourself, in your own code:
 
 ```ts
-import { parseMockList } from 'chaff'
+import { parseMockList } from 'shamock'
 import { sdk } from './sdk'
 import { product } from './resources'
 
@@ -25,7 +25,7 @@ Because `parseMock`/`parseMockList` only need a `{ schema }` shape, any `nexdk` 
 For cases where you want to fake the network itself rather than branch in application code — e.g. a playground app with no real backend — `setupMirageMock` spins up a MirageJS server that answers the same lomkit REST shape (`POST /:resource/search`, `POST /:resource/mutate`, `DELETE /:resource`) a real `@nexdk/driver-lomkit` backend would, so the SDK doesn't need to know it isn't talking to a real server:
 
 ```ts
-import { setupMirageMock } from 'chaff'
+import { setupMirageMock } from 'shamock'
 
 await setupMirageMock({
   baseUrl: 'https://api.example.com',

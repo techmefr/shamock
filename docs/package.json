@@ -1,6 +1,6 @@
 {
   "name": "docs",
-  "description": "Documentation site for chaff — a schema-driven mock/fallback engine.",
+  "description": "Documentation site for shamock — a schema-driven mock/fallback engine.",
   "type": "module",
   "version": "0.0.1",
   "private": true,

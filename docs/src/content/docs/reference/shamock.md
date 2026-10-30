@@ -1,6 +1,6 @@
 ---
-title: chaff API reference
-description: Every runtime export of the chaff package.
+title: shamock API reference
+description: Every runtime export of the shamock package.
 ---
 
 ## `parseMock(resource, mock)`

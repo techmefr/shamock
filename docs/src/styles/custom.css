@@ -1,25 +1,36 @@
-/* Bold, high-contrast theme: near-black/white base with a single electric accent. */
+@import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-	--sl-color-accent-low: #00203a;
-	--sl-color-accent: #2f8fff;
-	--sl-color-accent-high: #b8e4ff;
+	--sl-color-accent-low: #29134c;
+	--sl-color-accent: #a78bfa;
+	--sl-color-accent-high: #ede9fe;
 	--sl-color-white: #ffffff;
 	--sl-color-gray-1: #eef1ee;
 	--sl-color-gray-2: #c4c9c4;
 	--sl-color-gray-3: #8b928b;
 	--sl-color-gray-4: #5a615a;
 	--sl-color-gray-5: #34372f;
-	--sl-color-gray-6: #1c1e1a;
-	--sl-color-black: #0a0b09;
+	--sl-color-gray-6: #232620;
+	--sl-color-black: #131510;
 
-	--sl-font: 'Helvetica Neue', 'Arial', system-ui, sans-serif;
+	--sl-color-bg: #14150f;
+	--sl-color-bg-nav: color-mix(in srgb, #14150f 78%, transparent);
+	--sl-color-bg-sidebar: color-mix(in srgb, #14150f 82%, transparent);
+
+	--aurora-a: #713bff; /* Project accent. */
+	--aurora-b: #a855f7; /* Secondary tint. */
+	--aurora-c: #17180f; /* base fog behind the blobs */
+	--aurora-blob-opacity: 0.28;
+	--aurora-grain-opacity: 0.05;
+
+	--sl-font: 'Familjen Grotesk Variable', 'Familjen Grotesk', system-ui, sans-serif;
+	--sl-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 :root[data-theme='light'] {
-	--sl-color-accent-low: #d6ecff;
-	--sl-color-accent: #0060c0;
-	--sl-color-accent-high: #003a70;
+	--sl-color-accent-low: #ede9fe;
+	--sl-color-accent: #713bff;
+	--sl-color-accent-high: #4c1d95;
 	--sl-color-white: #0a0b09;
 	--sl-color-gray-1: #1c1e1a;
 	--sl-color-gray-2: #34372f;
@@ -27,8 +38,73 @@
 	--sl-color-gray-4: #8b928b;
 	--sl-color-gray-5: #c4c9c4;
 	--sl-color-gray-6: #eef1ee;
-	--sl-color-gray-7: #f7f9f7;
+	--sl-color-gray-7: #f8f7f2;
 	--sl-color-black: #ffffff;
+
+	--sl-color-bg: #f7f5ee;
+	--sl-color-bg-nav: color-mix(in srgb, #f7f5ee 75%, transparent);
+	--sl-color-bg-sidebar: color-mix(in srgb, #f7f5ee 80%, transparent);
+
+	--aurora-a: #c4b5fd;
+	--aurora-b: #ddd6fe;
+	--aurora-c: #f7f5ee;
+	--aurora-blob-opacity: 0.55;
+	--aurora-grain-opacity: 0.035;
+}
+
+/* The aurora: a few soft, blurred color fields drifting behind the whole site,
+   never confined to a hero banner, always low-contrast enough that body copy
+   and code stay readable on top of it. */
+body {
+	position: relative;
+	background-color: var(--aurora-c);
+}
+
+body::before,
+body::after {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+}
+
+body::before {
+	background-color: var(--aurora-c);
+	background-image:
+		radial-gradient(38rem 30rem at 8% 0%, var(--aurora-a), transparent 60%),
+		radial-gradient(34rem 28rem at 92% 18%, var(--aurora-b), transparent 62%),
+		radial-gradient(30rem 26rem at 15% 92%, var(--aurora-b), transparent 65%);
+	opacity: var(--aurora-blob-opacity);
+	filter: blur(60px) saturate(115%);
+	animation: aurora-drift 50s ease-in-out infinite alternate;
+}
+
+body::after {
+	opacity: var(--aurora-grain-opacity);
+	mix-blend-mode: overlay;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-size: 180px 180px;
+}
+
+@keyframes aurora-drift {
+	from {
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+	to {
+		transform: translate3d(-2%, 2%, 0) scale(1.06);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	body::before {
+		animation: none;
+	}
+}
+
+.header,
+.sidebar-pane {
+	backdrop-filter: blur(14px) saturate(120%);
 }
 
 /* Uppercase is kept for the hero only: in body copy it shouts, and it mangles
@@ -36,8 +112,8 @@
 h1,
 h2,
 h3 {
-	font-weight: 800;
-	letter-spacing: -0.02em;
+	font-weight: 700;
+	letter-spacing: -0.01em;
 }
 
 h1 {
@@ -57,9 +133,65 @@ a {
 	text-underline-offset: 0.2em;
 }
 
-.sl-markdown-content a:not(:where(.not-content *)) {
+/* Organic, hand-drawn underline instead of a ruled line: a colored squiggle,
+   cut as a mask so its shape stays crisp, pulled up to cross through the
+   lower-middle of the letters like a marker stroke rather than dangling
+   below the baseline. */
+.sl-markdown-content a:not(.sl-anchor-link):not(:where(.not-content *)) {
+	position: relative;
 	font-weight: 600;
-	text-decoration-thickness: 2px;
+	text-decoration: none;
+}
+
+/* Starlight's default link color is the flat accent, which falls short of AA
+   (3.76:1) against light mode's cream body background -- the underline
+   squiggle below stays on the flat accent since it's decorative, not text. */
+:root[data-theme='light'] .sl-markdown-content a:not(.sl-anchor-link):not(:where(.not-content *)) {
+	color: var(--sl-color-accent-high);
+}
+
+.sl-markdown-content a:not(.sl-anchor-link):not(:where(.not-content *))::after {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	inset-inline: -0.1em;
+	inset-block-end: 0.02em;
+	height: 0.5em;
+	background-color: var(--sl-color-accent);
+	opacity: 0.55;
+	-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 4.5 Q3 1 6 4.5 T12 4.5' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 4.5 Q3 1 6 4.5 T12 4.5' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+	-webkit-mask-repeat: repeat-x;
+	mask-repeat: repeat-x;
+	-webkit-mask-size: 12px 100%;
+	mask-size: 12px 100%;
+	transition: opacity 0.15s ease, height 0.15s ease;
+}
+
+.sl-markdown-content a:not(.sl-anchor-link):not(:where(.not-content *)):hover::after {
+	opacity: 0.8;
+	height: 0.6em;
+}
+
+/* An organic highlighter stroke behind <mark>, not a flat yellow rectangle.
+   inline-block keeps the marked phrase from splitting across a line break,
+   which would otherwise cut the ::before blob off mid-shape. */
+mark {
+	position: relative;
+	display: inline-block;
+	background: none;
+	color: inherit;
+	padding: 0.02em 0.3em;
+}
+
+mark::before {
+	content: '';
+	position: absolute;
+	inset: 0.05em -0.15em;
+	z-index: -1;
+	background: color-mix(in srgb, var(--sl-color-accent) 40%, transparent);
+	border-radius: 63% 37% 58% 42% / 45% 53% 47% 55%;
+	transform: rotate(-1deg);
 }
 
 .hero h1 {
@@ -81,10 +213,159 @@ a {
 }
 
 .card {
+	position: relative;
+	overflow: hidden;
 	border-width: 2px !important;
 	border-radius: 0.75rem !important;
 }
 
+.card::before {
+	content: '';
+	position: absolute;
+	top: -3rem;
+	inset-inline-end: -3rem;
+	width: 8rem;
+	height: 8rem;
+	background: var(--sl-color-accent);
+	opacity: 0.12;
+	border-radius: 61% 39% 44% 56% / 51% 44% 56% 49%;
+	filter: blur(6px);
+	pointer-events: none;
+}
+
 code {
 	font-weight: 600;
+}
+
+/* Force every code block to read as a real terminal window, not just shell
+   snippets: Expressive Code only shows the dotted title bar for blocks it
+   classifies `is-terminal`, so the whole chrome is rebuilt here, unconditionally,
+   with actual macOS-style traffic lights instead of one flat-colored icon.
+   The terminal stays dark in both site themes, like a real terminal does. */
+.expressive-code .frame {
+	border-radius: 0.6rem;
+	box-shadow: 0 10px 30px hsla(0, 0%, 0%, 0.35);
+	overflow: hidden;
+}
+
+.expressive-code .frame pre {
+	background: #1e1e1e !important;
+	border: none !important;
+	border-radius: 0 !important;
+}
+
+/* Expressive Code ships each token with both a light- and a dark-theme color
+   (the --0/--1 pair below) and switches between them with the site theme.
+   The frame background above never switches, so in light mode the text was
+   picking the light-theme color meant for a light background, on a
+   permanently dark one -- unreadable. Pin every token to its dark-theme
+   color, matching the terminal chrome it actually sits on. */
+.expressive-code .frame pre .ec-line .code span[style] {
+	color: var(--0) !important;
+}
+
+.expressive-code .frame .header {
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	position: relative;
+	padding-block: 0.65rem;
+	padding-inline: 1rem;
+	background: #2d2d2d;
+	border: none;
+	border-radius: 0;
+}
+
+.expressive-code .frame .header::before {
+	content: '';
+	position: absolute;
+	inset-inline-start: 1rem;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: #ff5f56;
+	box-shadow: 17px 0 0 #ffbd2e, 34px 0 0 #27c93f;
+}
+
+/* Cancel Expressive Code's "active editor tab" chip for titled blocks: with
+   every frame forced into terminal chrome above, that chip would otherwise
+   float as a separate pill above the dotted bar instead of sitting in it. */
+.expressive-code .frame .header .title {
+	position: static;
+	margin-block-start: 0 !important;
+	padding: 0 !important;
+	background: none !important;
+	border: none !important;
+	border-radius: 0 !important;
+	color: #e8e8e8;
+	font-size: 0.8rem;
+	font-weight: 600;
+	opacity: 0.9;
+}
+
+.expressive-code .frame .header .title::after {
+	content: none !important;
+}
+
+/* The current-page sidebar link sits on the accent color and Starlight's own
+   white text over it falls just short of AA (4.1:1) in light mode, where the
+   accent is a mid-tone green rather than dark mode's near-black backdrop. */
+:root[data-theme='light'] .sidebar-pane a[aria-current='page'] {
+	color: var(--sl-color-white);
+}
+
+/* Same accent-background/white-text shortfall on the hero's primary button. */
+:root[data-theme='light'] .sl-link-button.primary {
+	color: var(--sl-color-white);
+}
+
+/* An organic blob behind the theme/language selects on hover and focus,
+   matching the mark and card accents instead of a flat rectangular hover. */
+starlight-theme-select label,
+starlight-language-select label {
+	position: relative;
+}
+
+starlight-theme-select label::before,
+starlight-language-select label::before {
+	content: '';
+	position: absolute;
+	inset: -0.5rem -0.6rem;
+	z-index: -1;
+	background: transparent;
+	border-radius: 61% 39% 45% 55% / 52% 44% 56% 48%;
+	transform: rotate(0deg);
+	transition: background-color 0.15s ease, border-radius 0.15s ease, transform 0.15s ease;
+	pointer-events: none;
+}
+
+starlight-theme-select label:hover::before,
+starlight-theme-select label:focus-within::before,
+starlight-language-select label:hover::before,
+starlight-language-select label:focus-within::before {
+	background: color-mix(in srgb, var(--sl-color-accent) 18%, transparent);
+	border-radius: 42% 58% 63% 37% / 41% 55% 45% 59%;
+	transform: rotate(-2deg);
+}
+
+:root {
+  --brand-primary: #713bff;
+  --brand-on-primary: #ffffff;
+}
+
+.sl-link-button.primary,
+:root[data-theme='light'] .sl-link-button.primary,
+.sidebar-pane a[aria-current='page'],
+:root[data-theme='light'] .sidebar-pane a[aria-current='page'] {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: var(--brand-on-primary);
+}
+
+.site-title img { height: 2.25rem; width: auto; }
+.hero img { max-height: 16rem; object-fit: contain; }
+.hero h1 { text-transform: none; }
+:focus-visible { outline: 3px solid var(--sl-color-accent-high); outline-offset: 4px; }
+@media (max-width: 50rem) {
+  .hero h1 { font-size: clamp(2.25rem, 9vw, 3rem); }
 }

@@ -1,4 +1,4 @@
-# AGENT.md — chaff (mock engine)
+# AGENT.md — shamock (mock engine)
 
 ## Role
 Schema-driven mock / fallback. Exposes `parseMock`, `parseMockList` (async —
@@ -7,7 +7,7 @@ Accepts a minimal `MockableResource` (`{ schema }`) — deliberately NOT the ful
 nexdk `Resource`.
 
 ## Hard rule — independent of nexdk and beepr
-- **Never import `nexdk` or `beepr`.** chaff lives in its own repo now, but the
+- **Never import `nexdk` or `beepr`.** shamock lives in its own repo now, but the
   rule predates that: it only knows a `{ schema }` shape.
 - `MockableResource.schema` is typed against `StandardSchemaV1`
   (`src/standard-schema.ts`, a local copy of the same tiny contract nexdk keeps

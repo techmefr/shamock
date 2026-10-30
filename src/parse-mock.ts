@@ -1,7 +1,7 @@
 import type { StandardSchemaV1 } from './standard-schema.ts'
 
 // Minimal structural contract for what the mock parsers accept. Declared
-// locally so chaff does not depend on nexdk's Resource/AnyResource types — any
+// locally so shamock does not depend on nexdk's Resource/AnyResource types — any
 // object carrying a Standard Schema (Zod 3.24+, Valibot, ArkType, …) is mockable.
 export interface MockableResource {
     schema: StandardSchemaV1

@@ -1,6 +1,6 @@
-# chaff docs
+# shamock docs
 
-Documentation site for [`chaff`](..) — built with [Astro](https://astro.build) + [Starlight](https://starlight.astro.build).
+Documentation site for [`shamock`](..) — built with [Astro](https://astro.build) + [Starlight](https://starlight.astro.build).
 
 ## Develop
 
@@ -18,4 +18,4 @@ Static output goes to `docs/dist`.
 
 ## Deploy
 
-Pushes to `main` that touch `docs/**` are built and deployed to GitHub Pages automatically by [`.github/workflows/docs.yml`](../.github/workflows/docs.yml). Live at `https://techmefr.github.io/chaff/` (base path `/chaff`, set in `astro.config.mjs`).
+Pushes to `main` that touch `docs/**` are built and deployed to GitHub Pages automatically by [`.github/workflows/docs.yml`](../.github/workflows/docs.yml). Live at `https://techmefr.github.io/shamock/` (base path `/shamock`, set in `astro.config.mjs`).

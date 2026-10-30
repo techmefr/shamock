@@ -1,26 +1,32 @@
 ---
-title: chaff
+title: shamock
 description: Schema-driven mock/fallback engine — validate fixtures against any Standard Schema, optional MirageJS server.
 template: splash
 hero:
-  tagline: Schema-driven mock and offline-fallback engine. Validate fixtures against any Standard Schema validator so your test and offline data can't drift from the real shape.
+  image:
+    light: ../../assets/logo.svg
+    dark: ../../assets/logo-dark.svg
+    alt: shamock logo
+  tagline: Real schemas. Ghost data.
   actions:
-    - text: Read the introduction
-      link: /chaff/introduction/
+    - text: Get started
+      link: /shamock/getting-started/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
-      link: https://github.com/techmefr/chaff
+      link: https://github.com/techmefr/shamock
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
+Schema-validated mocks and offline fixtures, shaped like your real data.
+
 ## Install
 
 ```bash
-pnpm add chaff
+pnpm add shamock
 # plus the validator of your choice, e.g. zod
 # optional, for the in-browser mock server:
 pnpm add miragejs
@@ -29,7 +35,7 @@ pnpm add miragejs
 ## Usage
 
 ```ts
-import { parseMock, parseMockList } from 'chaff'
+import { parseMock, parseMockList } from 'shamock'
 import { z } from 'zod'
 
 const product = { schema: z.object({ id: z.number(), name: z.string() }) }
@@ -41,7 +47,7 @@ await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single objec
 <CardGrid>
 	<Card title="Validator-agnostic" icon="approve-check">
 		Validates against any [Standard Schema](https://standardschema.dev)
-		implementation — Zod, Valibot, ArkType. `chaff` never hardcodes one.
+		implementation — Zod, Valibot, ArkType. `shamock` never hardcodes one.
 	</Card>
 	<Card title="Structural, not SDK-shaped" icon="puzzle">
 		Accepts any `{ schema }` object — a minimal `MockableResource`, not a
@@ -52,3 +58,13 @@ await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single objec
 		same seed data, when fixture validation alone isn't enough.
 	</Card>
 </CardGrid>
+
+## Ecosystem
+
+| Project | Role | Documentation |
+|---|---|---|
+| [neXdk](https://github.com/techmefr/nexdk) | One resource grammar for REST, GraphQL and WebSocket backends. | [Docs](https://techmefr.github.io/nexdk/) |
+| [beepr](https://github.com/techmefr/beepr) | Typed events and notification adapters. | [Docs](https://techmefr.github.io/beepr/) |
+| [shamock](https://github.com/techmefr/shamock) | Schema-validated mock data, fixtures and offline fallback. | [Docs](https://techmefr.github.io/shamock/) |
+
+Use each library on its own, or compose them in application code. neXdk does not depend on beepr or shamock.
