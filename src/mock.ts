@@ -14,7 +14,7 @@ import { MockValidationError, parseMock, parseMockList } from './parse-mock.ts'
 export type { FailureRule, FetchLike }
 
 export interface MockSeed {
-    [resourceName: string]: Record<string, unknown>[]
+    [resourceName: string]: ReadonlyArray<object>
 }
 
 export interface MockRelation {
@@ -134,7 +134,7 @@ async function validatedSeed(config: MockConfig): Promise<Map<string, Record<str
     const seed = new Map<string, Record<string, unknown>[]>()
     for (const [name, items] of Object.entries(config.seed)) {
         const schema = Object.hasOwn(resources, name) ? resources[name]?.schema : undefined
-        seed.set(name, schema ? ((await parseMockList({ schema }, items)) as Record<string, unknown>[]) : items)
+        seed.set(name, schema ? ((await parseMockList({ schema }, items)) as Record<string, unknown>[]) : (items as Record<string, unknown>[]))
     }
     return seed
 }

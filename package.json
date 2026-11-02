@@ -32,18 +32,18 @@
     "sideEffects": false,
     "exports": {
         ".": {
-            "types": "./dist/index.d.ts",
+            "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs",
             "default": "./dist/index.mjs"
         },
         "./enabled": {
-            "types": "./dist/enabled.d.ts",
+            "types": "./dist/enabled.d.mts",
             "import": "./dist/enabled.mjs",
             "default": "./dist/enabled.mjs"
         }
     },
     "main": "./dist/index.mjs",
-    "types": "./dist/index.d.ts",
+    "types": "./dist/index.d.mts",
     "files": [
         "dist"
     ],
