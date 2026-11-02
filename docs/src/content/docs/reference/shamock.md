@@ -37,7 +37,7 @@ function createMock(config: MockConfig): Promise<Mock>
 
 Validates the config and seeds, then returns a mock. Nothing is installed.
 
-Throws `MockValidationError` for invalid seeds, `RangeError` for an invalid `timing`, and an `Error` when `resources` names a resource missing from `seed`.
+Throws `MockValidationError` for invalid seeds, `RangeError` for an invalid `timing`, `limits` or failure `status`, `delay`, `after` or `times`, `TypeError` for an invalid failure rule, and an `Error` when `resources` names a resource missing from `seed` or a relation targets one.
 
 ## `installMock(config)`
 
@@ -53,8 +53,36 @@ Same as `(await createMock(config)).install()`.
 interface MockConfig {
   baseUrl: string
   seed: MockSeed
-  resources?: Record<string, MockableResource>
+  resources?: Record<string, MockResource>
+  limits?: number[]
+  likeEscape?: boolean
+  maxNestingDepth?: number
+  failures?: FailureRule[]
   timing?: number
+}
+
+interface MockResource {
+  schema?: StandardSchemaV1
+  unique?: string[]
+  limits?: number[]
+  searchable?: string[]
+  relations?: Record<string, MockRelation>
+}
+
+interface MockRelation {
+  type: 'belongsTo' | 'hasMany'
+  resource: string
+  foreignKey: string
+}
+
+interface FailureRule {
+  method?: string
+  path?: string
+  after?: number
+  times?: number
+  status?: number
+  network?: boolean
+  delay?: number
 }
 
 interface MockSeed {
@@ -85,6 +113,6 @@ interface MockableResource {
 | `install` | Replaces `globalThis.fetch` and returns the mock with `restore`. |
 | `restore` | Removes this install. Safe to call twice, and in any order across nested installs. |
 
-Defaults: `timing` is `300` ms, accepted range `0` to `60000`. `baseUrl` must be absolute.
+Defaults: `timing` is `300` ms (pass `0` in tests), accepted range `0` to `60000`; `limits` is `[10, 25, 50]`. `baseUrl` must be absolute.
 
 Routes, payloads, errors and limits are described in the [Mock API guide](/shamock/guides/mocking/).
