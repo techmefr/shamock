@@ -29,6 +29,7 @@ export interface MockResource {
     limits?: number[]
     searchable?: string[]
     links?: Record<string, MockRelation>
+    mock?: boolean
 }
 
 export interface MockConfig {
@@ -41,12 +42,15 @@ export interface MockConfig {
     maxNestingDepth?: number
     failures?: FailureRule[]
     timing?: number
+    enabled?: boolean
+    fetch?: FetchLike
 }
 
 export interface Mock {
     handle: (request: Request) => Promise<Response>
     fetch: FetchLike
     install: () => InstalledMock
+    reset: () => void
 }
 
 export interface InstalledMock extends Mock {
@@ -125,7 +129,7 @@ const wait = (ms: number, signal: AbortSignal): Promise<void> =>
 async function validatedSeed(config: MockConfig): Promise<Map<string, Record<string, unknown>[]>> {
     const resources = config.resources ?? {}
     for (const name of Object.keys(resources)) {
-        if (!Object.hasOwn(config.seed, name)) throw new Error(`Resource "${name}" has no entry in seed`)
+        if (resources[name]?.mock !== false && !Object.hasOwn(config.seed, name)) throw new Error(`Resource "${name}" has no entry in seed`)
     }
     const seed = new Map<string, Record<string, unknown>[]>()
     for (const [name, items] of Object.entries(config.seed)) {
@@ -198,19 +202,32 @@ async function requiredBodyOf(request: Request): Promise<Record<string, unknown>
     return body
 }
 
+const disabledMock = (config: MockConfig): Mock => {
+    const passthrough = config.fetch ?? globalThis.fetch
+    const mock: Mock = {
+        handle: request => passthrough.call(globalThis, request),
+        fetch: (input, init) => passthrough.call(globalThis, input, init),
+        install: () => ({ ...mock, restore: () => undefined }),
+        reset: () => undefined,
+    }
+    return mock
+}
+
 export async function createMock(config: MockConfig): Promise<Mock> {
+    if (config.enabled === false) return disabledMock(config)
     const timing = validatedTiming(config.timing)
     if (config.profile !== undefined && config.profile !== 'lomkit') throw new RangeError('Invalid profile: expected "lomkit"')
     const lomkit = config.profile === 'lomkit'
     const limits = validatedLimits(config.limits) ?? (lomkit ? DEFAULT_LIMITS : undefined)
     const nesting = validatedNesting(config.maxNestingDepth)
-    const failureFor = createFailures(config.failures)
+    let failureFor = createFailures(config.failures)
     const seed = await validatedSeed(config)
     const resources = config.resources ?? {}
     validatedRelations(resources, seed)
-    const stores = new Map<string, Store>([...seed].map(([name, items]) => [name, createStore(items, lomkit)]))
+    const storesFromSeed = (): Map<string, Store> => new Map<string, Store>([...seed].map(([name, items]) => [name, createStore(items, lomkit)]))
+    let stores = storesFromSeed()
     const base = new URL(config.baseUrl)
-    const origin = globalThis.fetch
+    const origin = config.fetch ?? globalThis.fetch
     let writes: Promise<unknown> = Promise.resolve()
 
     const exclusive = <T>(task: () => Promise<T>): Promise<T> => {
@@ -329,19 +346,29 @@ export async function createMock(config: MockConfig): Promise<Mock> {
         }
     }
 
+    const reset = (): void => {
+        stores = storesFromSeed()
+        failureFor = createFailures(config.failures)
+    }
+
+    const isMocked = (path: string | undefined): boolean => {
+        if (path === undefined) return false
+        return resourceOf(decode(path.split('/')[1] ?? ''))?.mock !== false
+    }
+
     const serve = (next: () => FetchLike): FetchLike => {
         return (input, init) => {
-            if (pathOf(urlOf(input)) === undefined) return next().call(globalThis, input, init)
+            if (!isMocked(pathOf(urlOf(input)))) return next().call(globalThis, input, init)
             return handle(new Request(input, init))
         }
     }
 
     const install = (): InstalledMock => {
         const { fetch, restore } = installFetch(serve)
-        return { handle, fetch, install, restore }
+        return { handle, fetch, install, reset, restore }
     }
 
-    return { handle, fetch: serve(() => origin), install }
+    return { handle, fetch: serve(() => origin), install, reset }
 }
 
 export async function installMock(config: MockConfig): Promise<InstalledMock> {

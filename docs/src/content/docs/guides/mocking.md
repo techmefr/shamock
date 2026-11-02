@@ -71,6 +71,9 @@ const direct = await mock.handle(new Request('https://api.example.com/products/s
 | `likeEscape` | `true`: a backslash escapes `%`, `_` and itself. `false` reads it literally. Default `true`, `false` with `profile: 'lomkit'`. |
 | `maxNestingDepth` | Group levels allowed in `filters`, from `1` to `10`. Default `10`, `1` with `profile: 'lomkit'`. |
 | `failures` | Fault injection rules, see [Failure injection](#failure-injection). |
+| `enabled` | `false` disables the mock: nothing is intercepted and `mock.fetch` calls the real `fetch`. See [Mock or real backend](/shamock/guides/switching/). |
+| `fetch` | The `fetch` used for requests that are not mocked. Default: `globalThis.fetch` when `createMock` is called. |
+| `resources[name].mock` | `false` sends the resource to the real `fetch`. Default `true`. |
 | `timing` | Delay in ms, from `0` to `60000`. Default `300`: pass `0` in tests. Out of range throws `RangeError`. |
 
 Invalid seed data throws `MockValidationError` from `createMock`.
@@ -232,6 +235,10 @@ const mock = await createMock({
   ],
 })
 ```
+
+## Reset
+
+`mock.reset()` puts every resource back to its seed and rewinds the `failures` counters. See [Mock or real backend](/shamock/guides/switching/).
 
 ## Timing and abort
 

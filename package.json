@@ -35,6 +35,11 @@
             "types": "./dist/index.d.ts",
             "import": "./dist/index.mjs",
             "default": "./dist/index.mjs"
+        },
+        "./enabled": {
+            "types": "./dist/enabled.d.ts",
+            "import": "./dist/enabled.mjs",
+            "default": "./dist/enabled.mjs"
         }
     },
     "main": "./dist/index.mjs",
@@ -52,6 +57,7 @@
         "dev": "unbuild --stub"
     },
     "devDependencies": {
+        "@types/node": "^24.19.2",
         "typescript": "^5.9.3",
         "unbuild": "^3.6.1",
         "vitest": "^5.0.5",

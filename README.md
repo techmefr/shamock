@@ -80,6 +80,56 @@ mock.restore()
 answered from the seed, every other request goes to the previous `fetch`.
 `createMock` returns the same mock without touching the global.
 
+## Activate with a variable
+
+The calling code is the same with the mock and with the real backend. A variable switches the mock.
+
+```ts
+import { isMockEnabled } from 'shamock'
+
+const mock = await installMock({
+  baseUrl: 'https://api.example.com',
+  seed,
+  enabled: isMockEnabled({ SHAMOCK: import.meta.env.VITE_SHAMOCK }),
+})
+```
+
+`isMockEnabled(env?, variable = 'SHAMOCK')` is true for `1`, `true`, `on`, `yes` (any case), false otherwise, and reads `process.env` without `env`. Pass `import.meta.env` values for Vite, SvelteKit, Solid and Astro, the runtime config or `NEXT_PUBLIC_` for Nuxt and Next, `Deno.env.get()` for Deno, a binding for Workers. When disabled, `install()` does nothing and `mock.fetch` calls the real `fetch`.
+
+To keep shamock out of the production bundle, import it behind the switch (`shamock/enabled` holds only the switch, about 400 bytes):
+
+```ts
+import { isMockEnabled } from 'shamock/enabled'
+
+if (import.meta.env.DEV && isMockEnabled({ SHAMOCK: import.meta.env.VITE_SHAMOCK })) {
+  const { installMock } = await import('shamock')
+  await installMock({ baseUrl: 'https://api.example.com', seed })
+}
+```
+
+With a constant condition such as `import.meta.env.DEV`, the bundler drops the shamock chunk (about 7 kB gzipped). With `isMockEnabled` alone the chunk is emitted but never loaded when the variable is off.
+
+## Mock only what is not ready
+
+`resources[name].mock` is `true` by default. `false` sends that resource to the real `fetch`, the others stay mocked in the same client.
+
+```ts
+await installMock({
+  baseUrl: 'https://api.example.com',
+  seed: { orders: [{ id: 1, total: 20 }] },
+  resources: { users: { mock: false } },
+})
+```
+
+`users` reaches the real backend, `orders` comes from the seed. A resource set to `false` needs no seed entry.
+
+In tests, `mock.reset()` puts everything back to the seed, for example in vitest:
+
+```ts
+const mock = await createMock({ baseUrl: 'https://api.example.com', timing: 0, seed })
+beforeEach(() => mock.reset())
+```
+
 ## API
 
 | Export | Role |
@@ -89,6 +139,8 @@ answered from the seed, every other request goes to the previous `fetch`.
 | `MockValidationError` | Thrown on invalid data, with `issues` and `index`. |
 | `createMock(config)` | Returns `{ handle, fetch, install }`. |
 | `installMock(config)` | Installs the mock and returns it with `restore()`. |
+| `isMockEnabled(env?, variable?)` | Reads the switch variable. Also exported from `shamock/enabled`. |
+| `mock.reset()` | Puts every resource back to its seed and rewinds `failures`. |
 | `MockConfig`, `MockSeed`, `MockResource`, `MockRelation`, `FailureRule`, `FetchLike`, `Mock`, `InstalledMock`, `MockableResource` | Types. |
 
 Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
@@ -112,6 +164,9 @@ return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 | `maxNestingDepth` | Group levels allowed in `filters`, from `1` to `10`. Default `10`, `1` with `profile: 'lomkit'`. |
 | `failures` | Fault injection rules, see below. |
 | `timing` | Delay in ms, `0` to `60000`. Default `300`. |
+| `enabled` | `false` disables the mock: no interception, `mock.fetch` calls the real `fetch`. |
+| `fetch` | `fetch` used for requests that are not mocked. Default `globalThis.fetch` at `createMock`. |
+| `resources[name].mock` | `false` sends the resource to the real `fetch`. Default `true`. |
 
 ```ts
 const mock = await createMock({

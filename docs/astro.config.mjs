@@ -53,6 +53,10 @@ export default defineConfig({
                 "slug": "guides/mocking"
             },
             {
+                "label": "Mock or real backend",
+                "slug": "guides/switching"
+            },
+            {
                 "label": "Pairing with neXdk",
                 "slug": "guides/pairing-with-nexdk"
             }

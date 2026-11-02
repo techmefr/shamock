@@ -47,6 +47,14 @@ function installMock(config: MockConfig): Promise<InstalledMock>
 
 Same as `(await createMock(config)).install()`.
 
+## `isMockEnabled(env?, variable?)`
+
+```ts
+function isMockEnabled(env?: Record<string, unknown>, variable = 'SHAMOCK'): boolean
+```
+
+`true` when the variable is `1`, `true`, `on` or `yes` (any case), `false` otherwise. `env` defaults to `globalThis.process?.env`. Also exported from `shamock/enabled`, a module that holds nothing else. See [Mock or real backend](/shamock/guides/switching/).
+
 ## Types
 
 ```ts
@@ -60,6 +68,8 @@ interface MockConfig {
   maxNestingDepth?: number
   failures?: FailureRule[]
   timing?: number
+  enabled?: boolean
+  fetch?: FetchLike
 }
 
 interface MockResource {
@@ -68,6 +78,7 @@ interface MockResource {
   limits?: number[]
   searchable?: string[]
   links?: Record<string, MockRelation>
+  mock?: boolean
 }
 
 interface MockRelation {
@@ -94,6 +105,7 @@ interface Mock {
   handle: (request: Request) => Promise<Response>
   fetch: FetchLike
   install: () => InstalledMock
+  reset: () => void
 }
 
 interface InstalledMock extends Mock {
@@ -111,8 +123,11 @@ interface MockableResource {
 |---|---|
 | `handle` | Answers a `Request` as the mock. `404` outside `baseUrl`. |
 | `fetch` | Serves requests under `baseUrl`, forwards the rest to the `fetch` captured when `createMock` was called. |
+| `reset` | Puts every resource back to its seed and rewinds the `failures` counters. |
 | `install` | Replaces `globalThis.fetch` and returns the mock with `restore`. |
 | `restore` | Removes this install. Safe to call twice, and in any order across nested installs. |
+
+`enabled: false` makes `createMock` return a mock that calls the real `fetch` (the `fetch` option or the captured `globalThis.fetch`): `install()` changes nothing and returns a no-op `restore`. `resources[name].mock: false` sends that resource to the real `fetch`.
 
 Defaults: `timing` is `300` ms (pass `0` in tests), accepted range `0` to `60000`; `limits` is unset (any positive `limit`), `[10, 25, 50]` with `profile: 'lomkit'`. `baseUrl` must be absolute.
 
