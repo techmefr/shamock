@@ -143,8 +143,8 @@ beforeEach(() => mock.reset())
 | `mock.reset()` | Puts every resource back to its seed and rewinds `failures`. |
 | `MockConfig`, `MockSeed`, `MockResource`, `MockRelation`, `FailureRule`, `FetchLike`, `Mock`, `InstalledMock`, `MockableResource` | Types. |
 
-Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
-and `DELETE /<resource>`. `search` answers a paginator (`data` plus `current_page`, `last_page`, `per_page`, `total`, `from`, `to` at the root, `meta: []`, 50 rows per page by default). `mutate` supports create and update only and answers `{ created: [ids], updated: [ids] }`. Failures
+shamock answers a documented request protocol (search, mutate, delete), not a particular backend. Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
+and `DELETE /<resource>`. `search` answers a paginated envelope (`data` plus `current_page`, `last_page`, `per_page`, `total`, `from`, `to` at the root, `meta: []`, 50 rows per page by default). `mutate` supports create and update only and answers `{ created: [ids], updated: [ids] }`, the ids written. Failures
 return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 
 ### Configuration

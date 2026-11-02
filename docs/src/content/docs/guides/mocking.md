@@ -104,7 +104,7 @@ await fetch('https://api.example.com/products/search', {
 })
 ```
 
-The `search` wrapper is optional: a flat body works too. The response is a Laravel-style paginator: `data` and, at the root, `current_page`, `last_page`, `per_page`, `total`, `from` and `to` (`null` on an empty page), with `meta: []`. Without `limit`, a page holds 50 rows.
+The `search` wrapper is optional: a flat body works too. The response is a paginated envelope: `data` and, at the root, `current_page`, `last_page`, `per_page`, `total`, `from` and `to` (`null` on an empty page), with `meta: []`. Without `limit`, a page holds 50 rows.
 
 - Supported keys: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Other keys are ignored (the lomkit profile answers `422`).
 - Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `like`, `not like`, `in`, `not in`. Any other operator returns `422` `Invalid search`. An empty `in` list matches no row.
