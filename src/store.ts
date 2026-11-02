@@ -1,7 +1,9 @@
-import { normalizeDates } from './dates.ts'
 import { HttpError } from './http-error.ts'
 import { isRecord, own } from './record.ts'
-import type { SearchRecord } from './search.ts'
+import type { Row } from './record.ts'
+
+type SearchRecord = Row
+export type Normalize = (attributes: Record<string, unknown>) => Record<string, unknown>
 
 export const MAX_ROWS = 10_000
 
@@ -13,6 +15,7 @@ const toId = (value: unknown): string | number => {
 
 export interface Store {
     all: () => SearchRecord[]
+    get: (key: unknown) => SearchRecord | undefined
     insert: (attributes: unknown) => SearchRecord
     update: (key: unknown, attributes: Record<string, unknown>) => SearchRecord | null
     has: (key: unknown) => boolean
@@ -21,8 +24,8 @@ export interface Store {
     preview: <T>(work: () => T) => T
 }
 
-export function createStore(items: Record<string, unknown>[], dates = false): Store {
-    const stored = (attributes: Record<string, unknown>): Record<string, unknown> => (dates ? normalizeDates(attributes) : attributes)
+export function createStore(items: Record<string, unknown>[], normalize?: Normalize): Store {
+    const stored = (attributes: Record<string, unknown>): Record<string, unknown> => (normalize === undefined ? attributes : normalize(attributes))
     let rows = new Map<string, SearchRecord>()
     let nextId = 1
     const numericIds = items.length > 0 && items.every(item => typeof item['id'] === 'number')
@@ -65,6 +68,10 @@ export function createStore(items: Record<string, unknown>[], dates = false): St
 
     return {
         all: () => [...rows.values()].map(record => ({ ...record })),
+        get(key) {
+            const record = rows.get(String(toId(key)))
+            return record === undefined ? undefined : { ...record }
+        },
         insert,
         update(key, attributes) {
             const current = rows.get(String(toId(key)))
