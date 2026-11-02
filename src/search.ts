@@ -1,11 +1,19 @@
+import { toStoredDate } from './dates.ts'
 import { HttpError } from './http-error.ts'
 import { isRecord, own } from './record.ts'
 
-const MAX_NESTING = 10
+const DEFAULT_NESTING = 1
+export const MAX_NESTING = 10
 const MAX_FILTERS = 100
 const MAX_LIST_VALUES = 1000
 const MAX_PATTERN_LENGTH = 256
 const DEFAULT_LIMIT = 50
+const SEARCH_KEYS = ['filters', 'sorts', 'selects', 'includes', 'text', 'limit', 'page']
+const INCLUDE_KEYS = ['relation', 'filters', 'sorts', 'selects', 'includes', 'limit']
+const REFUSED_KEYS = ['aggregates', 'scopes', 'instructions', 'gates']
+const OPERATORS = new Set(['=', '!=', '>', '>=', '<', '<=', 'like', 'not like', 'in', 'not in'])
+
+export const DEFAULT_LIMITS = [10, 25, 50]
 
 export type SearchRecord = Record<string, unknown>
 
@@ -33,16 +41,51 @@ export interface SearchResult {
     meta: []
 }
 
+export interface SearchRelation {
+    type: 'belongsTo' | 'hasMany'
+    foreignKey: string
+    records: () => SearchRecord[]
+    options: () => SearchOptions
+}
+
+export interface SearchOptions {
+    limits?: number[]
+    searchable?: string[]
+    likeEscape?: boolean
+    maxNestingDepth?: number
+    relations?: Record<string, SearchRelation>
+}
+
+interface ParsedInclude {
+    name: string
+    relation: SearchRelation
+    search: ParsedSearch
+}
+
+interface ParsedSearch {
+    filters: SearchFilter[]
+    sorts: SearchSort[]
+    selects: string[]
+    includes: ParsedInclude[]
+    text?: string
+    limit?: number
+    options: SearchOptions
+}
+
 interface LikeToken {
     character: string
     wildcard: boolean
 }
 
-function likeTokens(pattern: string): LikeToken[] {
+const invalid = (what: string, errors: Record<string, string[]> = {}): HttpError => new HttpError(422, `Invalid search: ${what}`, errors)
+
+const foldAscii = (value: string): string => value.replace(/[A-Z]/g, letter => letter.toLowerCase())
+
+function likeTokens(pattern: string, escape: boolean): LikeToken[] {
     const tokens: LikeToken[] = []
     for (let index = 0; index < pattern.length; index++) {
         const character = pattern[index] as string
-        if (character === '\\' && index + 1 < pattern.length) {
+        if (escape && character === '\\' && index + 1 < pattern.length) {
             tokens.push({ character: pattern[++index] as string, wildcard: false })
         } else {
             tokens.push({ character, wildcard: character === '%' || character === '_' })
@@ -51,9 +94,9 @@ function likeTokens(pattern: string): LikeToken[] {
     return tokens
 }
 
-function likeMatch(value: string, pattern: string): boolean {
-    const text = value.toLowerCase()
-    const glob = likeTokens(pattern.toLowerCase())
+function likeMatch(value: string, pattern: string, escape: boolean): boolean {
+    const text = foldAscii(value)
+    const glob = likeTokens(foldAscii(pattern), escape)
     let t = 0
     let p = 0
     let star = -1
@@ -85,13 +128,15 @@ function ordered(left: unknown, right: unknown): number | undefined {
     return undefined
 }
 
-function likeResult(left: unknown, right: unknown): boolean | undefined {
+function likeResult(left: unknown, right: unknown, escape: boolean): boolean | undefined {
     if (typeof right !== 'string') return undefined
     if (typeof left !== 'string' && typeof left !== 'number' && typeof left !== 'boolean') return undefined
-    return likeMatch(String(left), right)
+    return likeMatch(String(left), right, escape)
 }
 
-function compare(left: unknown, operator: string, right: unknown): boolean {
+const isNull = (value: unknown): boolean => value === undefined || value === null
+
+function compare(left: unknown, operator: string, right: unknown, escape: boolean): boolean {
     switch (operator) {
         case '=':
             return left === right
@@ -106,13 +151,13 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
         case '<=':
             return (ordered(left, right) ?? Number.NaN) <= 0
         case 'like':
-            return likeResult(left, right) === true
+            return likeResult(left, right, escape) === true
         case 'not like':
-            return likeResult(left, right) === false
+            return likeResult(left, right, escape) === false
         case 'in':
-            return Array.isArray(right) && right.includes(left)
+            return Array.isArray(right) && !isNull(left) && right.includes(left)
         case 'not in':
-            return Array.isArray(right) && !right.includes(left)
+            return Array.isArray(right) && !isNull(left) && !right.includes(null) && !right.includes(left)
         default:
             return false
     }
@@ -123,20 +168,24 @@ const asText = (value: unknown): unknown => {
     return typeof value === 'string' || typeof value === 'number' ? String(value) : value
 }
 
-function matches(record: SearchRecord, filters: SearchFilter[]): boolean {
-    let result = true
+function matches(record: SearchRecord, filters: SearchFilter[], escape: boolean): boolean {
+    let group = true
+    let result = false
     filters.forEach((filter, index) => {
         const field = filter.field ?? ''
         const normalize = field === 'id' ? asText : (value: unknown): unknown => value
         const current =
             filter.nested !== undefined
-                ? matches(record, filter.nested)
-                : compare(normalize(own(record, field)), filter.operator ?? '=', normalize(filter.value))
-        if (index === 0) result = current
-        else if (filter.type === 'or') result = result || current
-        else result = result && current
+                ? matches(record, filter.nested, escape)
+                : compare(normalize(own(record, field)), filter.operator ?? '=', normalize(filter.value), escape)
+        if (index > 0 && filter.type === 'or') {
+            result = result || group
+            group = current
+        } else {
+            group = group && current
+        }
     })
-    return result
+    return result || group
 }
 
 function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord[] {
@@ -146,22 +195,16 @@ function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord
             const field = sort.field ?? ''
             const left = own(a, field)
             const right = own(b, field)
-            const leftMissing = left === undefined || left === null
-            const rightMissing = right === undefined || right === null
-            if (leftMissing && rightMissing) continue
-            if (leftMissing) return 1
-            if (rightMissing) return -1
-            if (left === right) continue
-            const order = (left as number | string) > (right as number | string) ? 1 : -1
-            return sort.direction === 'desc' ? -order : order
+            if (isNull(left) && isNull(right)) continue
+            let order = 0
+            if (isNull(left)) order = -1
+            else if (isNull(right)) order = 1
+            else if (left !== right) order = (left as number | string) > (right as number | string) ? 1 : -1
+            if (order !== 0) return sort.direction === 'desc' ? -order : order
         }
         return 0
     })
 }
-
-const OPERATORS = new Set(['=', '!=', '>', '>=', '<', '<=', 'like', 'not like', 'in', 'not in'])
-
-const invalid = (what: string): HttpError => new HttpError(422, `Invalid search: ${what}`)
 
 function optionalString(item: Record<string, unknown>, key: string): string | undefined {
     const value = own(item, key)
@@ -185,13 +228,16 @@ function valueOf(item: Record<string, unknown>, operator: string | undefined): u
     if ((operator === 'like' || operator === 'not like') && typeof value === 'string' && value.length > MAX_PATTERN_LENGTH) {
         throw invalid(`like patterns are limited to ${MAX_PATTERN_LENGTH} characters`)
     }
-    return value
+    if (operator === 'in' && Array.isArray(value) && value.length === 0) throw invalid('"in" needs at least one value')
+    return Array.isArray(value) ? value.map(toStoredDate) : toStoredDate(value)
 }
 
-function filtersOf(value: unknown, budget = { left: MAX_FILTERS }, depth = 0): SearchFilter[] {
-    if (depth > MAX_NESTING) throw invalid('filters are nested too deeply')
+function filtersOf(value: unknown, maxDepth: number, budget = { left: MAX_FILTERS }, depth = 0): SearchFilter[] {
+    if (depth > maxDepth) throw invalid('filters are nested too deeply')
     return listOf(value, 'filters').map(item => {
         if (--budget.left < 0) throw invalid(`filters are limited to ${MAX_FILTERS}`)
+        const unknown = Object.keys(item).find(key => !['field', 'operator', 'value', 'type', 'nested'].includes(key))
+        if (unknown !== undefined) throw invalid(`unknown filter key "${unknown}"`)
         const nested = own(item, 'nested')
         const operator = optionalString(item, 'operator')
         if (operator !== undefined && !OPERATORS.has(operator)) throw invalid(`unknown operator "${operator}"`)
@@ -200,7 +246,7 @@ function filtersOf(value: unknown, budget = { left: MAX_FILTERS }, depth = 0): S
             operator,
             type: optionalString(item, 'type'),
             value: valueOf(item, operator),
-            nested: nested === undefined ? undefined : filtersOf(nested, budget, depth + 1),
+            nested: nested === undefined ? undefined : filtersOf(nested, maxDepth, budget, depth + 1),
         }
     })
 }
@@ -210,6 +256,14 @@ function sortsOf(value: unknown): SearchSort[] {
         field: optionalString(item, 'field'),
         direction: optionalString(item, 'direction'),
     }))
+}
+
+function selectsOf(value: unknown): string[] {
+    return listOf(value, 'selects').map(item => {
+        const field = optionalString(item, 'field')
+        if (field === undefined) throw invalid('"selects" items need a field')
+        return field
+    })
 }
 
 export function searchOf(body: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -222,25 +276,103 @@ function textOf(search: Record<string, unknown>): string | undefined {
     const text = own(search, 'text')
     if (!isRecord(text)) return undefined
     const value = own(text, 'value')
-    return typeof value === 'string' && value !== '' ? value.toLowerCase() : undefined
+    return typeof value === 'string' && value !== '' ? value : undefined
 }
 
-const containsText = (record: SearchRecord, text: string): boolean =>
-    Object.values(record).some(value => typeof value === 'string' && value.toLowerCase().includes(text))
+const hasLike = (filters: SearchFilter[]): boolean =>
+    filters.some(filter => filter.operator === 'like' || filter.operator === 'not like' || (filter.nested !== undefined && hasLike(filter.nested)))
 
-export function applySearch(records: SearchRecord[], search: Record<string, unknown>): SearchResult {
-    const filters = filtersOf(own(search, 'filters'))
-    const sorts = sortsOf(own(search, 'sorts'))
+function checkKeys(search: Record<string, unknown>, allowed: string[]): void {
+    for (const key of Object.keys(search)) {
+        if (allowed.includes(key)) continue
+        if (!REFUSED_KEYS.includes(key)) throw invalid(`unknown key "${key}"`)
+        const value = search[key]
+        if (!Array.isArray(value) || value.length > 0) throw invalid(`"${key}" is not supported`)
+    }
+}
+
+function limitOf(search: Record<string, unknown>, options: SearchOptions, path: string): number | undefined {
+    const raw = own(search, 'limit')
+    if (raw === undefined) return undefined
+    if (options.limits !== undefined) {
+        if (typeof raw !== 'number' || !options.limits.includes(raw)) {
+            const message = `The selected ${path}.limit is invalid.`
+            throw new HttpError(422, message, { [`${path}.limit`]: [message] })
+        }
+        return raw
+    }
+    return typeof raw === 'number' && raw > 0 ? Math.floor(raw) : undefined
+}
+
+function includesOf(value: unknown, options: SearchOptions, path: string): ParsedInclude[] {
+    return listOf(value, 'includes').map((item, index) => {
+        const name = optionalString(item, 'relation')
+        const relation = name === undefined || !Object.hasOwn(options.relations ?? {}, name) ? undefined : (options.relations as Record<string, SearchRelation>)[name]
+        if (name === undefined || relation === undefined) throw invalid(`unknown relation "${name ?? ''}"`)
+        return { name, relation, search: parseSearch(item, relation.options(), `${path}.includes.${index}`, INCLUDE_KEYS) }
+    })
+}
+
+function parseSearch(search: Record<string, unknown>, options: SearchOptions, path: string, allowed: string[]): ParsedSearch {
+    checkKeys(search, allowed)
+    const filters = filtersOf(own(search, 'filters'), options.maxNestingDepth ?? DEFAULT_NESTING)
     const text = textOf(search)
-    const filtered = sortRecords(
-        records.filter(record => matches(record, filters) && (text === undefined || containsText(record, text))),
-        sorts,
+    if (text !== undefined && hasLike(filters)) throw invalid('"like" filters cannot be combined with text search')
+    return {
+        filters,
+        sorts: sortsOf(own(search, 'sorts')),
+        selects: selectsOf(own(search, 'selects')),
+        includes: includesOf(own(search, 'includes'), options, path),
+        text,
+        limit: limitOf(search, options, path),
+        options,
+    }
+}
+
+const containsText = (record: SearchRecord, text: string, options: SearchOptions): boolean => {
+    const pattern = `%${text}%`
+    return Object.entries(record).some(
+        ([field, value]) =>
+            typeof value === 'string' && (options.searchable === undefined || options.searchable.includes(field)) && likeMatch(value, pattern, options.likeEscape !== false),
     )
-    const rawLimit = own(search, 'limit')
+}
+
+function rowsOf(records: SearchRecord[], parsed: ParsedSearch): SearchRecord[] {
+    const { text, options } = parsed
+    return sortRecords(
+        records.filter(record => matches(record, parsed.filters, options.likeEscape !== false) && (text === undefined || containsText(record, text, options))),
+        parsed.sorts,
+    )
+}
+
+const sameId = (left: unknown, right: unknown): boolean => !isNull(left) && !isNull(right) && String(left) === String(right)
+
+function included(record: SearchRecord, { relation, search }: ParsedInclude): unknown {
+    const related = rowsOf(relation.records(), search)
+    if (relation.type === 'belongsTo') {
+        const found = related.find(item => sameId(item['id'], record[relation.foreignKey]))
+        return found === undefined ? null : shape(found, search)
+    }
+    const children = related.filter(item => sameId(item[relation.foreignKey], record['id']))
+    return (search.limit === undefined ? children : children.slice(0, search.limit)).map(item => shape(item, search))
+}
+
+function shape(record: SearchRecord, parsed: ParsedSearch): SearchRecord {
+    const row: SearchRecord =
+        parsed.selects.length === 0
+            ? { ...record }
+            : Object.fromEntries(parsed.selects.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]))
+    for (const include of parsed.includes) row[include.name] = included(record, include)
+    return row
+}
+
+export function applySearch(records: SearchRecord[], search: Record<string, unknown>, options: SearchOptions = {}): SearchResult {
+    const parsed = parseSearch(search, options, 'search', SEARCH_KEYS)
     const rawPage = own(search, 'page')
-    const limit = typeof rawLimit === 'number' && rawLimit > 0 ? Math.floor(rawLimit) : DEFAULT_LIMIT
+    const filtered = rowsOf(records, parsed)
+    const limit = parsed.limit ?? DEFAULT_LIMIT
     const page = typeof rawPage === 'number' && rawPage > 0 ? Math.floor(rawPage) : 1
-    const data = filtered.slice((page - 1) * limit, page * limit)
+    const data = filtered.slice((page - 1) * limit, page * limit).map(record => shape(record, parsed))
     return {
         data,
         current_page: page,

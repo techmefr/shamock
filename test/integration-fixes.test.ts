@@ -51,8 +51,8 @@ describe('schema validation of mutations', () => {
         expect(response.status).toBe(422)
         const body = (await response.json()) as { message: string; errors: Record<string, string[]> }
         expect(body.message).toBe('The given data was invalid.')
-        expect(Object.keys(body.errors).sort()).toEqual(['age', 'name'])
-        expect(body.errors['name']).toEqual([expect.any(String)])
+        expect(Object.keys(body.errors).sort()).toEqual(['mutate.0.attributes.age', 'mutate.0.attributes.name'])
+        expect(body.errors['mutate.0.attributes.name']).toEqual([expect.any(String)])
         expect(await rows(await post(mock, 'users/search'))).toEqual(seed.users)
     })
 
@@ -113,11 +113,12 @@ describe('unknown ids', () => {
         expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1, name: 'Ann' }])
     })
 
-    it('delete of an unknown id stays a success', async () => {
+    it('delete of an unknown id answers 422 like lomkit', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }] } })
         const response = await mock.fetch('http://api.test/users', { method: 'DELETE', body: JSON.stringify({ resources: [9] }) })
-        expect(response.status).toBe(200)
-        expect(await response.json()).toEqual({ success: true })
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({ message: 'The selected resources.0 is invalid.', errors: { 'resources.0': ['The selected resources.0 is invalid.'] } })
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1 }])
     })
 })
 

@@ -92,11 +92,11 @@ describe('like robustness and sorting', () => {
         expect(applySearch(rows, { filters: [{ field: 'v', operator: 'not like', value: '%lp' }] }).data).toEqual([{ v: 'Hello' }])
     })
 
-    it('sorts null and undefined last in both directions, keeping order stable', () => {
+    it('sorts null and undefined first ascending and last descending like SQLite, keeping order stable', () => {
         const rows = [{ id: 1 }, { id: 2, n: 5 }, { id: 3, n: null }, { id: 4, n: 1 }, { id: 5 }]
         const asc = applySearch(rows, { sorts: [{ field: 'n', direction: 'asc' }] }).data.map(r => r['id'])
         const desc = applySearch(rows, { sorts: [{ field: 'n', direction: 'desc' }] }).data.map(r => r['id'])
-        expect(asc).toEqual([4, 2, 1, 3, 5])
+        expect(asc).toEqual([1, 3, 5, 4, 2])
         expect(desc).toEqual([2, 4, 1, 3, 5])
     })
 })

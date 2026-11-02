@@ -155,7 +155,7 @@ describe('body limits', () => {
 
     it('answers 422 when the store would exceed the maximum number of records', async () => {
         const seed = { users: Array.from({ length: MAX_ROWS }, (_, index) => ({ id: index })) }
-        const mock = await createMock({ ...base, seed })
+        const mock = await createMock({ ...base, limits: [MAX_ROWS], seed })
         const response = await post(mock, 'users/mutate', { mutate: [create({})] })
         expect(response.status).toBe(422)
         expect(await rows(await post(mock, 'users/search', { limit: MAX_ROWS }))).toHaveLength(MAX_ROWS)

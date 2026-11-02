@@ -1,3 +1,4 @@
+import { normalizeDates } from './dates.ts'
 import { HttpError } from './http-error.ts'
 import { isRecord, own } from './record.ts'
 import type { SearchRecord } from './search.ts'
@@ -14,6 +15,7 @@ export interface Store {
     all: () => SearchRecord[]
     insert: (attributes: unknown) => SearchRecord
     update: (key: unknown, attributes: Record<string, unknown>) => SearchRecord | null
+    has: (key: unknown) => boolean
     remove: (key: unknown) => void
     transaction: <T>(work: () => T) => T
     preview: <T>(work: () => T) => T
@@ -41,7 +43,7 @@ export function createStore(items: Record<string, unknown>[]): Store {
         }
         const numeric = Number(id)
         if (Number.isSafeInteger(numeric) && String(numeric) === String(id) && numeric >= nextId) nextId = numeric + 1
-        const record = { ...attributes, id }
+        const record = { ...normalizeDates(attributes), id }
         rows.set(String(id), record)
         return { ...record }
     }
@@ -66,10 +68,11 @@ export function createStore(items: Record<string, unknown>[]): Store {
         update(key, attributes) {
             const current = rows.get(String(toId(key)))
             if (current === undefined) return null
-            const record = { ...current, ...attributes, id: current['id'] }
+            const record = { ...current, ...normalizeDates(attributes), id: current['id'] }
             rows.set(String(current['id']), record)
             return { ...record }
         },
+        has: key => rows.has(String(toId(key))),
         remove(key) {
             rows.delete(String(toId(key)))
         },
