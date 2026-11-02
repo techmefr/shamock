@@ -65,7 +65,10 @@ const direct = await mock.handle(new Request('https://api.example.com/products/s
 | `resources[name].unique` | Field names that must stay unique. |
 | `resources[name].limits` | Accepted `limit` values for this resource. |
 | `resources[name].searchable` | Fields read by `text` search. All string fields by default. |
-| `resources[name].links` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
+| `resources[name].links` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes` and `aggregates`. |
+| `resources[name].scopes` | `{ [name]: (rows, params) => rows }`, applied by `scopes: [{ name, parameters }]`. |
+| `resources[name].instructions` | `{ [name]: (rows, fields) => rows }`, applied by `instructions: [{ name, fields: [{ name, value }] }]`, `fields` being an object. |
+| `resources[name].gates` | `{ view, update, delete, restore, forceDelete: (row) => boolean }`, answered for `gates: [...]`. |
 | `profile` | `'lomkit'` opts in to the strict compatibility profile, see [Compatibility profile](#compatibility-profile). Omitted: the mock follows the JSON you give it. |
 | `limits` | Accepted `limit` values, a non-empty list of positive integers. Any positive `limit` by default, `[10, 25, 50]` with `profile: 'lomkit'`. |
 | `likeEscape` | `true`: a backslash escapes `%`, `_` and itself. `false` reads it literally. Default `true`, `false` with `profile: 'lomkit'`. |
@@ -106,7 +109,7 @@ await fetch('https://api.example.com/products/search', {
 
 The `search` wrapper is optional: a flat body works too. The response is a paginated envelope: `data` and, at the root, `current_page`, `last_page`, `per_page`, `total`, `from` and `to` (`null` on an empty page), with `meta: []`. Without `limit`, a page holds 50 rows.
 
-- Supported keys: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Other keys are ignored (the lomkit profile answers `422`).
+- Supported keys: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`, and `aggregates`, `scopes`, `instructions`, `gates` once declared. Other keys are ignored (the lomkit profile answers `422`).
 - Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `like`, `not like`, `in`, `not in`. Any other operator returns `422` `Invalid search`. An empty `in` list matches no row.
 - `like` is case-insensitive. `%` matches any run, `_` one character. A backslash escapes `%`, `_` and the backslash itself, so `Jo\_el` matches the literal `Jo_el`. With `likeEscape: false` the backslash is literal.
 - `text: { value }` (next to `filters`, inside or outside `search`) keeps the records where a string field contains the value, case-insensitively. The fields are the string fields of the record, or `resources[name].searchable`. Numbers, arrays and nested values are not searched, an empty text is ignored.
@@ -116,6 +119,10 @@ The `search` wrapper is optional: a flat body works too. The response is a pagin
 - Sorting puts null and missing values last in both directions.
 - Any positive `limit` is accepted. When `limits` is set, `limit` must be one of them, otherwise `422` with `errors: { "search.limit": [...] }`. Without `limit`, a page holds 50 rows.
 - `selects: [{ field }]` keeps only those fields.
+- `aggregates: [{ relation, type, field, filters, alias }]` computes `count`, `exists`, `sum`, `avg`, `min` or `max` over a relation declared in `resources[name].links` and adds the value to each row under `alias`, or `<relation in snake_case>_<type>[_<field>]` (`posts_count`, `posts_sum_score`). `field` is required for `sum`, `avg`, `min` and `max`. `count` is `0` and `exists` is `false` without related rows, the others are `null`. `filters` select the related rows.
+- `scopes` and `instructions` are functions you declare per resource. They receive the rows and return the rows to keep, before `filters`, `sorts` and pagination, so `total` follows.
+- `gates: ['view', 'update', ...]` adds `gates: { authorized_to_view: true, ... }` to each row, as lomkit does (names `authorized_to_view`, `authorized_to_update`, `authorized_to_delete`, `authorized_to_restore`, `authorized_to_force_delete`), from the functions declared in `resources[name].gates`. `create` and `viewAny` are accepted and add nothing.
+- A field ending in `.keyword` (the Elasticsearch suffix used by Scout) filters and sorts as the field without the suffix.
 - `includes: [{ relation, filters, sorts, selects, limit, includes }]` embeds a relation declared in `resources[name].links`: `belongsTo` becomes an object or `null`, `hasMany` an array, with `limit` applied per parent. The `limit` of an include must be one of the `limits` of the related resource. An undeclared relation is ignored, so data embedded in your JSON stays as is (the lomkit profile answers `422`).
 
 ### Mutate
@@ -200,7 +207,8 @@ Errors are `{ "message": "...", "errors": {} }`.
 | `like` case folding | Unicode lowercase | ASCII letters only |
 | Backslash in `like` | escape (`likeEscape: true`) | literal (`likeEscape: false`) |
 | Group in a group | up to 10 levels (option `maxNestingDepth`) | `422` (1 level) |
-| Unknown search or filter keys, `aggregates`, `scopes`, `instructions`, `gates` | ignored | `422` (empty arrays accepted) |
+| Unknown search or filter keys | ignored | `422` |
+| `aggregates`, `scopes`, `instructions`, `gates` without a declaration, an unknown relation, scope, instruction or gate name | ignored | `422` (empty arrays accepted) |
 | `includes` of an undeclared relation | ignored | `422` |
 | `like` filter with `text` | allowed | `422` |
 | `text` | plain substring | `%value%` pattern, `%` and `_` are wildcards |

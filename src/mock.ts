@@ -5,13 +5,13 @@ import { installFetch } from './install.ts'
 import type { FetchLike } from './install.ts'
 import { idsToRemove, mutationsOf, parseJsonBody, readBody, toMutation } from './request-body.ts'
 import { applySearch, DEFAULT_LIMITS, MAX_NESTING, searchOf } from './search.ts'
-import type { SearchOptions, SearchRecord } from './search.ts'
+import type { GateFn, GateName, InstructionFn, ScopeFn, SearchOptions, SearchRecord } from './search.ts'
 import type { StandardSchemaV1 } from './standard-schema.ts'
 import { createStore } from './store.ts'
 import type { Store } from './store.ts'
 import { MockValidationError, parseMock, parseMockList } from './parse-mock.ts'
 
-export type { FailureRule, FetchLike }
+export type { FailureRule, FetchLike, GateFn, GateName, InstructionFn, ScopeFn }
 
 export interface MockSeed {
     [resourceName: string]: ReadonlyArray<object>
@@ -29,6 +29,9 @@ export interface MockResource {
     limits?: number[]
     searchable?: string[]
     links?: Record<string, MockRelation>
+    scopes?: Record<string, ScopeFn>
+    instructions?: Record<string, InstructionFn>
+    gates?: Partial<Record<GateName, GateFn>>
     mock?: boolean
 }
 
@@ -256,7 +259,7 @@ export async function createMock(config: MockConfig): Promise<Mock> {
                 options: () => searchOptions(link.resource),
             },
         ])
-        return { lomkit, limits: resource?.limits ?? limits, searchable: resource?.searchable, likeEscape: config.likeEscape ?? !lomkit, maxNestingDepth: nesting, relations: Object.fromEntries(relations) }
+        return { scopes: resource?.scopes, instructions: resource?.instructions, gates: resource?.gates, lomkit, limits: resource?.limits ?? limits, searchable: resource?.searchable, likeEscape: config.likeEscape ?? !lomkit, maxNestingDepth: nesting, relations: Object.fromEntries(relations) }
     }
 
     const route = async (method: string, path: string, request: Request): Promise<Response> => {

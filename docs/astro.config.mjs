@@ -57,6 +57,10 @@ export default defineConfig({
                 "slug": "guides/switching"
             },
             {
+                "label": "Nuxt, $fetch and Vitest",
+                "slug": "guides/nuxt-and-vitest"
+            },
+            {
                 "label": "Pairing with neXdk",
                 "slug": "guides/pairing-with-nexdk"
             }

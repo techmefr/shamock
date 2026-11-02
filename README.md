@@ -157,7 +157,10 @@ return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 | `resources[name].unique` | Field names that must stay unique. |
 | `resources[name].limits` | Accepted `limit` values for this resource. |
 | `resources[name].searchable` | Fields read by `text` search. All string fields by default. |
-| `resources[name].links` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
+| `resources[name].links` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes` and `aggregates`. |
+| `resources[name].scopes` | `{ [name]: (rows, params) => rows }`, applied by `scopes: [{ name, parameters }]`. |
+| `resources[name].instructions` | `{ [name]: (rows, fields) => rows }`, applied by `instructions: [{ name, fields: [{ name, value }] }]`, `fields` being an object. |
+| `resources[name].gates` | `{ view, update, delete, restore, forceDelete: (row) => boolean }`, answered for `gates: [...]`. |
 | `profile` | `'lomkit'` opts in to the strict compatibility profile, see Behavior. Omitted: the mock follows the JSON you give it. |
 | `limits` | Accepted `limit` values. Any positive `limit` by default, `[10, 25, 50]` with `profile: 'lomkit'`. |
 | `likeEscape` | `true`: a backslash escapes `%`, `_` and itself. `false` reads it literally. Default `true`, `false` with `profile: 'lomkit'`. |
@@ -188,10 +191,14 @@ const mock = await createMock({
 The mock answers from the JSON you provide. Its default behavior is simple and data-driven.
 
 - `and` binds tighter than `or`, as in SQL: `a and b or c and d` is `(a and b) or (c and d)`. A group (`nested`) counts as one condition.
-- Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Unknown keys are ignored. An unknown operator answers `422`. An `includes` entry naming an undeclared relation is ignored, so data embedded in your JSON stays as is.
+- Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`, and `aggregates`, `scopes`, `instructions`, `gates` once declared. Unknown keys are ignored. An unknown operator answers `422`. An `includes` entry naming an undeclared relation is ignored, so data embedded in your JSON stays as is.
 - Any positive `limit` is accepted. Without `limit`, a page holds 50 rows. `limits` (and `resources[name].limits`) restrict the accepted values: anything else is a `422` with `errors: { 'search.limit': [...] }`.
 - `selects` keeps the listed fields. `includes` embeds relations declared in `resources[name].links` (`belongsTo` as an object or `null`, `hasMany` as an array), with their own `filters`, `sorts`, `selects`, `limit` and nested `includes`.
 - `like` is case-insensitive, `%` and `_` are wildcards, a backslash escapes them unless `likeEscape: false`. `in []` matches nothing.
+- `aggregates: [{ relation, type, field, filters, alias }]` computes `count`, `exists`, `sum`, `avg`, `min` or `max` over a relation declared in `resources[name].links` and adds the value to each row under `alias`, or `<relation in snake_case>_<type>[_<field>]` (`posts_count`, `posts_sum_score`). `field` is required for `sum`, `avg`, `min` and `max`. `count` is `0` and `exists` is `false` without related rows, the others are `null`. `filters` select the related rows.
+- `scopes` and `instructions` are functions you declare per resource. They receive the rows and return the rows to keep, before `filters`, `sorts` and pagination, so `total` follows.
+- `gates: ['view', 'update', ...]` adds `gates: { authorized_to_view: true, ... }` to each row, as lomkit does (names `authorized_to_view`, `authorized_to_update`, `authorized_to_delete`, `authorized_to_restore`, `authorized_to_force_delete`), from the functions declared in `resources[name].gates`. `create` and `viewAny` are accepted and add nothing.
+- A field ending in `.keyword` (the Elasticsearch suffix used by Scout) filters and sorts as the field without the suffix.
 - Null sorts last in both directions. Dates are kept as given.
 - `text: { value }` keeps the records where a string field contains the value, case-insensitively (all string fields, or `resources[name].searchable`).
 - With `resources[name].schema`, created and updated records are validated: `422` with errors keyed by field name (`record` for a root issue). `resources[name].unique` lists unique fields: a duplicate is a `422` keyed by the field.
@@ -200,6 +207,7 @@ The mock answers from the JSON you provide. Its default behavior is simple and d
 - `failures` injects faults, rule by rule: `{ method?, path?, after?, times?, status?, network?, delay? }`. A rule matches a method and a path such as `/users/search`, skips `after` matching calls, then fires `times` times (every call when omitted). It answers `status` (400 to 599, body `{ message: 'Injected failure', errors: {} }`), rejects with a `TypeError` for `network: true`, and waits `delay` ms first. The first rule that fires wins.
 - `timing` defaults to 300 ms per call. Pass `timing: 0` in tests.
 - `mock.fetch` forwards foreign URLs to the `fetch` captured at `createMock`.
+- `ofetch` and Nuxt `$fetch` read `globalThis.fetch` at each call, so `installMock` intercepts them. `ofetch.create(defaults, { fetch })` needs `mock.fetch` (or a function resolving `globalThis.fetch` at call time) as `fetch`. A Nuxt plugin and a Vitest setup are in the documentation (Nuxt, $fetch and Vitest).
 
 #### Compatibility profile
 
@@ -217,14 +225,15 @@ The mock answers from the JSON you provide. Its default behavior is simple and d
 | `like` case folding | Unicode lowercase | ASCII letters only |
 | Backslash in `like` | escape (`likeEscape: true`) | literal (`likeEscape: false`) |
 | Group in a group | up to 10 levels (option `maxNestingDepth`) | `422` (1 level) |
-| Unknown search or filter keys, `aggregates`, `scopes`, `instructions`, `gates` | ignored | `422` (empty arrays accepted) |
+| Unknown search or filter keys | ignored | `422` |
+| `aggregates`, `scopes`, `instructions`, `gates` without a declaration, an unknown relation, scope, instruction or gate name | ignored | `422` (empty arrays accepted) |
 | `includes` of an undeclared relation | ignored | `422` |
 | `like` filter with `text` | allowed | `422` |
 | `text` | plain substring | `%value%` pattern, `%` and `_` are wildcards |
 
 `limits`, `maxNestingDepth`, `likeEscape`, `unique`, `searchable` and `failures` work with or without the profile, and an explicit option wins over the profile.
 
-Not supported: aggregates, scopes, instructions, gates, text search sorts and filters limited to a scout field list, field name validation, policies, soft deletes, restore and force delete, `mutate` operations other than `create` and `update`, relation mutations, validation without a schema.
+Not supported: aggregates on nested relation paths, text search sorts and filters limited to a scout field list, field name validation, policies, soft deletes, restore and force delete, `mutate` operations other than `create` and `update`, relation mutations, validation without a schema.
 
 Full details in the [documentation](https://techmefr.github.io/shamock/).
 

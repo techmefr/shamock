@@ -78,8 +78,16 @@ interface MockResource {
   limits?: number[]
   searchable?: string[]
   links?: Record<string, MockRelation>
+  scopes?: Record<string, ScopeFn>
+  instructions?: Record<string, InstructionFn>
+  gates?: Partial<Record<GateName, GateFn>>
   mock?: boolean
 }
+
+type ScopeFn = (rows: Record<string, unknown>[], params: unknown[]) => Record<string, unknown>[]
+type InstructionFn = (rows: Record<string, unknown>[], fields: Record<string, unknown>) => Record<string, unknown>[]
+type GateName = 'view' | 'update' | 'delete' | 'restore' | 'forceDelete'
+type GateFn = (row: Record<string, unknown>) => boolean
 
 interface MockRelation {
   type: 'belongsTo' | 'hasMany'

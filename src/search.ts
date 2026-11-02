@@ -13,6 +13,17 @@ const SEARCH_KEYS = ['filters', 'sorts', 'selects', 'includes', 'text', 'limit',
 const INCLUDE_KEYS = ['relation', 'filters', 'sorts', 'selects', 'includes', 'limit']
 const REFUSED_KEYS = ['aggregates', 'scopes', 'instructions', 'gates']
 const OPERATORS = new Set(['=', '!=', '>', '>=', '<', '<=', 'like', 'not like', 'in', 'not in'])
+const AGGREGATE_TYPES = ['count', 'exists', 'sum', 'avg', 'min', 'max']
+const FIELD_AGGREGATES = ['sum', 'avg', 'min', 'max']
+const GATES_KEY = 'gates'
+const GATE_ABILITIES = ['viewAny', 'view', 'create', 'update', 'delete', 'restore', 'forceDelete']
+const GATE_OUTPUT: Record<string, string> = {
+    view: 'authorized_to_view',
+    update: 'authorized_to_update',
+    delete: 'authorized_to_delete',
+    restore: 'authorized_to_restore',
+    forceDelete: 'authorized_to_force_delete',
+}
 
 export const DEFAULT_LIMITS = [10, 25, 50]
 
@@ -49,7 +60,15 @@ export interface SearchRelation {
     options: () => SearchOptions
 }
 
+export type ScopeFn = (rows: SearchRecord[], params: unknown[]) => SearchRecord[]
+export type InstructionFn = (rows: SearchRecord[], fields: Record<string, unknown>) => SearchRecord[]
+export type GateFn = (row: SearchRecord) => boolean
+export type GateName = 'view' | 'update' | 'delete' | 'restore' | 'forceDelete'
+
 export interface SearchOptions {
+    scopes?: Record<string, ScopeFn>
+    instructions?: Record<string, InstructionFn>
+    gates?: Partial<Record<GateName, GateFn>>
     lomkit?: boolean
     limits?: number[]
     searchable?: string[]
@@ -64,7 +83,18 @@ interface ParsedInclude {
     search: ParsedSearch
 }
 
+interface ParsedAggregate {
+    key: string
+    type: string
+    field?: string
+    filters: SearchFilter[]
+    relation: SearchRelation
+}
+
 interface ParsedSearch {
+    aggregates: ParsedAggregate[]
+    gates: [string, GateFn][]
+    prepare: ((rows: SearchRecord[]) => SearchRecord[])[]
     filters: SearchFilter[]
     sorts: SearchSort[]
     selects: string[]
@@ -220,6 +250,8 @@ function optionalString(item: Record<string, unknown>, key: string): string | un
     return value
 }
 
+const plainField = (field: string | undefined): string | undefined => field?.replace(/\.keyword$/, '')
+
 function listOf(value: unknown, what: string): Record<string, unknown>[] {
     if (value === undefined) return []
     if (!Array.isArray(value)) throw invalid(`"${what}" must be an array`)
@@ -250,7 +282,7 @@ function filtersOf(value: unknown, maxDepth: number, lomkit: boolean, budget = {
         const operator = optionalString(item, 'operator')
         if (operator !== undefined && !OPERATORS.has(operator)) throw invalid(`unknown operator "${operator}"`)
         return {
-            field: optionalString(item, 'field'),
+            field: plainField(optionalString(item, 'field')),
             operator,
             type: optionalString(item, 'type'),
             value: valueOf(item, operator, lomkit),
@@ -261,7 +293,7 @@ function filtersOf(value: unknown, maxDepth: number, lomkit: boolean, budget = {
 
 function sortsOf(value: unknown): SearchSort[] {
     return listOf(value, 'sorts').map(item => ({
-        field: optionalString(item, 'field'),
+        field: plainField(optionalString(item, 'field')),
         direction: optionalString(item, 'direction'),
     }))
 }
@@ -327,13 +359,113 @@ function includesOf(value: unknown, options: SearchOptions, path: string): Parse
     return includes
 }
 
-function parseSearch(search: Record<string, unknown>, options: SearchOptions, path: string, allowed: string[]): ParsedSearch {
+const declaredIn = (declarations: object | undefined, name: string | undefined): boolean =>
+    name !== undefined && declarations !== undefined && Object.hasOwn(declarations, name)
+
+function declaredKeys(options: SearchOptions): string[] {
+    const keys: string[] = []
+    if (Object.keys(options.relations ?? {}).length > 0) keys.push('aggregates')
+    if (options.scopes !== undefined) keys.push('scopes')
+    if (options.instructions !== undefined) keys.push('instructions')
+    if (options.gates !== undefined) keys.push('gates')
+    return keys
+}
+
+function aggregatesOf(value: unknown, options: SearchOptions, maxDepth: number): ParsedAggregate[] {
     const lomkit = options.lomkit === true
-    checkKeys(search, allowed, lomkit)
-    const filters = filtersOf(own(search, 'filters'), options.maxNestingDepth ?? (lomkit ? LOMKIT_NESTING : DEFAULT_NESTING), lomkit)
+    const aggregates: ParsedAggregate[] = []
+    for (const item of listOf(value, 'aggregates')) {
+        const name = optionalString(item, 'relation')
+        if (!declaredIn(options.relations, name)) {
+            if (lomkit) throw invalid(`unknown relation "${name ?? ''}"`)
+            continue
+        }
+        const relation = (options.relations as Record<string, SearchRelation>)[name as string] as SearchRelation
+        const type = optionalString(item, 'type')
+        if (type === undefined || !AGGREGATE_TYPES.includes(type)) throw invalid(`unknown aggregate type "${type ?? ''}"`)
+        const field = optionalString(item, 'field')
+        const needsField = FIELD_AGGREGATES.includes(type)
+        if (field === undefined && needsField) throw invalid(`"${type}" aggregates need a field`)
+        if (lomkit && field !== undefined && !needsField) throw invalid(`"${type}" aggregates take no field`)
+        const alias = optionalString(item, 'alias')
+        const snake = (name as string).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+        aggregates.push({
+            key: alias ?? `${snake}_${type}${field === undefined ? '' : `_${field}`}`,
+            type,
+            field,
+            relation,
+            filters: filtersOf(own(item, 'filters'), maxDepth, lomkit),
+        })
+    }
+    return aggregates
+}
+
+function scopesOf(value: unknown, options: SearchOptions): ParsedSearch['prepare'] {
+    const steps: ParsedSearch['prepare'] = []
+    for (const item of listOf(value, 'scopes')) {
+        const name = optionalString(item, 'name')
+        if (!declaredIn(options.scopes, name)) {
+            if (options.lomkit === true) throw invalid(`unknown scope "${name ?? ''}"`)
+            continue
+        }
+        const params = own(item, 'parameters') ?? []
+        if (!Array.isArray(params)) throw invalid('"parameters" must be an array')
+        const scope = (options.scopes as Record<string, ScopeFn>)[name as string] as ScopeFn
+        steps.push(rows => scope(rows, params))
+    }
+    return steps
+}
+
+function instructionsOf(value: unknown, options: SearchOptions): ParsedSearch['prepare'] {
+    const steps: ParsedSearch['prepare'] = []
+    for (const item of listOf(value, 'instructions')) {
+        const name = optionalString(item, 'name')
+        if (!declaredIn(options.instructions, name)) {
+            if (options.lomkit === true) throw invalid(`unknown instruction "${name ?? ''}"`)
+            continue
+        }
+        const fields = Object.fromEntries(
+            listOf(own(item, 'fields'), 'fields').map(field => [optionalString(field, 'name') ?? '', own(field, 'value')]),
+        )
+        const instruction = (options.instructions as Record<string, InstructionFn>)[name as string] as InstructionFn
+        steps.push(rows => instruction(rows, fields))
+    }
+    return steps
+}
+
+function gatesOf(value: unknown, options: SearchOptions): [string, GateFn][] {
+    if (value !== undefined && !Array.isArray(value)) throw invalid('"gates" must be an array')
+    const gates: [string, GateFn][] = []
+    for (const ability of (value ?? []) as unknown[]) {
+        if (typeof ability !== 'string' || !GATE_ABILITIES.includes(ability)) {
+            if (options.lomkit === true) throw invalid(`unknown gate "${String(ability)}"`)
+            continue
+        }
+        const output = GATE_OUTPUT[ability]
+        if (output === undefined) continue
+        const check = options.gates?.[ability as GateName]
+        if (check !== undefined) gates.push([output, check])
+        else if (options.lomkit === true) throw invalid(`unknown gate "${ability}"`)
+    }
+    return gates
+}
+
+function parseSearch(search: Record<string, unknown>, options: SearchOptions, path: string, allowed: string[], root = false): ParsedSearch {
+    const lomkit = options.lomkit === true
+    const declared = root ? declaredKeys(options) : []
+    checkKeys(search, [...allowed, ...declared], lomkit)
+    const maxDepth = options.maxNestingDepth ?? (lomkit ? LOMKIT_NESTING : DEFAULT_NESTING)
+    const filters = filtersOf(own(search, 'filters'), maxDepth, lomkit)
     const text = textOf(search)
     if (lomkit && text !== undefined && hasLike(filters)) throw invalid('"like" filters cannot be combined with text search')
+    const has = (key: string): boolean => declared.includes(key)
     return {
+        aggregates: has('aggregates') ? aggregatesOf(own(search, 'aggregates'), options, maxDepth) : [],
+        gates: has('gates') ? gatesOf(own(search, 'gates'), options) : [],
+        prepare: [
+            ...(has('scopes') ? scopesOf(own(search, 'scopes'), options) : []),
+            ...(has('instructions') ? instructionsOf(own(search, 'instructions'), options) : []),
+        ],
         filters,
         sorts: sortsOf(own(search, 'sorts')),
         selects: selectsOf(own(search, 'selects')),
@@ -364,14 +496,35 @@ function rowsOf(records: SearchRecord[], parsed: ParsedSearch): SearchRecord[] {
 
 const sameId = (left: unknown, right: unknown): boolean => !isNull(left) && !isNull(right) && String(left) === String(right)
 
+function linked(record: SearchRecord, relation: SearchRelation, rows: SearchRecord[]): SearchRecord[] {
+    if (relation.type === 'belongsTo') return rows.filter(item => sameId(item['id'], record[relation.foreignKey]))
+    return rows.filter(item => sameId(item[relation.foreignKey], record['id']))
+}
+
 function included(record: SearchRecord, { relation, search }: ParsedInclude): unknown {
-    const related = rowsOf(relation.records(), search)
+    const related = linked(record, relation, rowsOf(relation.records(), search))
     if (relation.type === 'belongsTo') {
-        const found = related.find(item => sameId(item['id'], record[relation.foreignKey]))
+        const [found] = related
         return found === undefined ? null : shape(found, search)
     }
-    const children = related.filter(item => sameId(item[relation.foreignKey], record['id']))
-    return (search.limit === undefined ? children : children.slice(0, search.limit)).map(item => shape(item, search))
+    return (search.limit === undefined ? related : related.slice(0, search.limit)).map(item => shape(item, search))
+}
+
+function aggregated(record: SearchRecord, { relation, type, field, filters }: ParsedAggregate): unknown {
+    const options = relation.options()
+    const rows = linked(record, relation, relation.records().filter(item => matches(item, filters, options)))
+    if (type === 'count') return rows.length
+    if (type === 'exists') return rows.length > 0
+    const values = rows.map(row => own(row, field ?? '')).filter(value => !isNull(value))
+    if (type === 'sum' || type === 'avg') {
+        const numbers = values.filter((value): value is number => typeof value === 'number')
+        if (numbers.length === 0) return null
+        const sum = numbers.reduce((total, value) => total + value, 0)
+        return type === 'sum' ? sum : sum / numbers.length
+    }
+    const direction = type === 'min' ? -1 : 1
+    const best = values.reduce<unknown>((kept, value) => (kept === undefined || (ordered(value, kept) ?? 0) * direction > 0 ? value : kept), undefined)
+    return best ?? null
 }
 
 function shape(record: SearchRecord, parsed: ParsedSearch): SearchRecord {
@@ -380,13 +533,18 @@ function shape(record: SearchRecord, parsed: ParsedSearch): SearchRecord {
             ? { ...record }
             : Object.fromEntries(parsed.selects.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]))
     for (const include of parsed.includes) row[include.name] = included(record, include)
+    for (const aggregate of parsed.aggregates) row[aggregate.key] = aggregated(record, aggregate)
+    if (parsed.gates.length > 0) row[GATES_KEY] = Object.fromEntries(parsed.gates.map(([name, check]) => [name, check(record)]))
     return row
 }
 
 export function applySearch(records: SearchRecord[], search: Record<string, unknown>, options: SearchOptions = {}): SearchResult {
-    const parsed = parseSearch(search, options, 'search', SEARCH_KEYS)
+    const parsed = parseSearch(search, options, 'search', SEARCH_KEYS, true)
     const rawPage = own(search, 'page')
-    const filtered = rowsOf(records, parsed)
+    const filtered = rowsOf(
+        parsed.prepare.reduce((rows, step) => step(rows), [...records]),
+        parsed,
+    )
     const limit = parsed.limit ?? DEFAULT_LIMIT
     const page = typeof rawPage === 'number' && rawPage > 0 ? Math.floor(rawPage) : 1
     const data = filtered.slice((page - 1) * limit, page * limit).map(record => shape(record, parsed))
