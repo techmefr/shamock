@@ -1,9 +1,13 @@
 ---
 title: Pairing with nexdk
-description: Using shamock alongside an nexdk SDK for offline or test fixture data.
+description: Use shamock next to a nexdk SDK for offline or test data.
 ---
 
-`shamock` has **zero dependency on `nexdk`** — no driver or core function calls into it automatically. Mocking is an application-level choice, not something `nexdk` short-circuits into for you. If you want mock data, you validate and use it yourself, in your own code:
+shamock has no dependency on [nexdk](https://github.com/techmefr/nexdk). Nothing in nexdk calls shamock for you: mocking is an application choice.
+
+Any nexdk resource declared with `defineResource` has a `schema`, so it already satisfies `MockableResource`.
+
+## Validate fixtures
 
 ```ts
 import { parseMockList } from 'shamock'
@@ -18,21 +22,20 @@ async function getProducts(useMock = false) {
 }
 ```
 
-Because `parseMock`/`parseMockList` only need a `{ schema }` shape, any `nexdk` resource declared with `defineResource` already satisfies `MockableResource` — no adapter needed.
+## Fake the network
 
-## Full network interception with MirageJS
-
-For cases where you want to fake the network itself rather than branch in application code — e.g. a playground app with no real backend — `setupMirageMock` spins up a MirageJS server that answers the same lomkit REST shape (`POST /:resource/search`, `POST /:resource/mutate`, `DELETE /:resource`) a real `@nexdk/driver-lomkit` backend would, so the SDK doesn't need to know it isn't talking to a real server:
+The mock answers the lomkit REST shape: `POST /<resource>/search`, `POST /<resource>/mutate` and `DELETE /<resource>`. Install it before the SDK sends requests, with the SDK's absolute base URL:
 
 ```ts
-import { setupMirageMock } from 'shamock'
+import { installMock } from 'shamock'
 
-await setupMirageMock({
+const mock = await installMock({
   baseUrl: 'https://api.example.com',
   seed: { products: [{ id: 1, name: 'Demo product', price: 9.99 }] },
+  resources: { products: product },
 })
 
-// sdk.lomkit.products.get({}) now hits the Mirage server instead of the network
+mock.restore()
 ```
 
-`miragejs` is an optional peer dependency — install it yourself if you use `setupMirageMock`.
+While installed, requests under `baseUrl` never reach the network. See the [Mock API](/shamock/guides/mocking/) for routes and limits.

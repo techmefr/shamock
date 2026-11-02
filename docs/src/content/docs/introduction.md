@@ -1,17 +1,21 @@
 ---
 title: Introduction
-description: Why shamock exists and what problem it solves.
+description: Why shamock exists and what it does.
 ---
 
-Test fixtures and offline mock data drift from the real shape over time — a field gets renamed in the schema, the fixture doesn't, and nothing catches it until a real request breaks. `shamock` closes that gap: it validates any mock value against the exact same [Standard Schema](https://standardschema.dev) validator (Zod, Valibot, ArkType…) your app already uses, so a stale fixture fails loudly instead of silently.
+Test fixtures and offline mock data drift from the real shape over time. A field is renamed in the schema, the fixture is not, and nothing fails until a real request breaks.
 
-`shamock` only needs a minimal shape to do this — a `{ schema }` object, not a specific SDK's resource type. It has no dependency on any SDK, including [`nexdk`](https://github.com/techmefr/nexdk).
+shamock closes that gap with two tools:
+
+- **Validation.** Check any mock value against the same [Standard Schema](https://standardschema.dev) validator (Zod, Valibot, ArkType...) your app uses. A stale fixture fails loudly.
+- **Mock API.** Serve seed data from an in-process REST API that answers `fetch` calls. No server needed.
+
+shamock needs only a `{ schema }` object, not an SDK resource type. It has zero dependencies and requires Node.js 22 or later.
 
 ## Install
 
 ```bash
-npm install shamock
-# plus the validator of your choice, e.g. zod
+pnpm add shamock
 ```
 
 ## A minimal example
@@ -20,13 +24,15 @@ npm install shamock
 import { parseMock } from 'shamock'
 import { z } from 'zod'
 
-const userSchema = z.object({ id: z.number(), name: z.string() })
+const user = { schema: z.object({ id: z.number(), name: z.string() }) }
 
-const user = await parseMock({ schema: userSchema }, { id: 1, name: 'Alice' })
-// throws if the mock doesn't match userSchema — never a silently wrong fixture
+await parseMock(user, { id: 1, name: 'Alice' })
 ```
+
+It throws `MockValidationError` when the value does not match the schema.
 
 From here:
 
-- [Pairing with nexdk](/shamock/guides/pairing-with-nexdk/) — using `shamock` alongside an `nexdk` SDK for offline/mock data.
-- [shamock API](/shamock/reference/shamock/) — every runtime export.
+- [Mock API](/shamock/guides/mocking/): serve seed data over `fetch`.
+- [Pairing with nexdk](/shamock/guides/pairing-with-nexdk/): use shamock next to a nexdk SDK.
+- [shamock API](/shamock/reference/shamock/): every runtime export.

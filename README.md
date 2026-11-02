@@ -19,32 +19,31 @@
 
 **Real schemas. Ghost data.**
 
-Schema-driven mock / fallback engine. Validate fixtures against any
+Schema-driven mock engine. Validate fixtures against any
 [Standard Schema](https://standardschema.dev) validator (Zod, Valibot,
-ArkType…) so your offline and test data can't drift from the real shape.
-Optional MirageJS server for full network interception.
+ArkType...), and serve them from an in-process mock API that answers
+`fetch` calls. Zero dependencies.
 
-> **Keywords** — `mock` · `mocking` · `fixtures` · `mock-data` · `schema-validation` · `standard-schema` · `typescript` · `zod` · `valibot` · `arktype` · `miragejs` · `offline` · `fallback` · `testing`
+> **Keywords** — `mock` · `mocking` · `fixtures` · `mock-data` · `schema-validation` · `standard-schema` · `typescript` · `zod` · `valibot` · `arktype` · `offline` · `fallback` · `testing`
 
 ## Why shamock
 
 | Feature | What you get |
 |---|---|
-| **Real schemas** | Validate fixture data with any Standard Schema validator. |
-| **Actionable errors** | MockValidationError reports original issues, field paths and list indexes. |
-| **Async validation** | Single records and lists support asynchronous validators. |
-| **Optional mock server** | MirageJS serves search, mutation and deletion routes from seed data. |
+| **Real schemas** | Validate fixtures with any Standard Schema validator. |
+| **Actionable errors** | `MockValidationError` reports issues, field paths and list indexes. |
+| **Mock API over `fetch`** | `search`, `mutate` and `DELETE` routes served from seed data. |
+| **Safe by default** | Atomic writes, bounded inputs, no dependency. |
 
 ## Install
 
 ```bash
 pnpm add shamock
-# plus the validator of your choice, e.g. zod
-# optional, for the in-browser mock server:
-pnpm add miragejs
 ```
 
-## Usage
+Add the validator of your choice, for example `zod`. Requires Node.js 22 or later.
+
+## Validate fixtures
 
 ```ts
 import { parseMock, parseMockList } from 'shamock'
@@ -52,36 +51,60 @@ import { z } from 'zod'
 
 const product = { schema: z.object({ id: z.number(), name: z.string() }) }
 
-await parseMock(product, { id: 1, name: 'A' })          // → validated single item
-await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single object or array)
+await parseMock(product, { id: 1, name: 'A' })
+await parseMockList(product, [{ id: 1, name: 'A' }])
 ```
 
-- **`parseMock(resource, mock)`** / **`parseMockList(resource, mock)`** —
-  validate `T | T[]` against `resource.schema` (async: Standard Schema's
-  `validate` may return a Promise). `resource` only needs a minimal
-  `{ schema }` (a `MockableResource`), so there's no dependency on the SDK.
-- **`setupMirageMock({ baseUrl, seed, resources?, timing? })`** — spin up a MirageJS server backed
-  by `seed` (a `{ [resourceName]: object[] }` map), serving `/:resource/search`,
-  `/:resource/mutate` and `DELETE /:resource` in the lomkit REST shape (peer
-  dependency `miragejs`, optional). Pass `resources` to validate seeds and `timing` to set response latency.
+## Mock the network
 
-Standalone fixture validation for tests, or the offline fallback layer for
-[`nexdk`](https://www.npmjs.com/package/nexdk).
+```ts
+import { installMock } from 'shamock'
 
-## Documentation
+const mock = await installMock({
+  baseUrl: 'https://api.example.com',
+  seed: { products: [{ id: 1, name: 'A' }] },
+  timing: 0,
+})
 
-Full docs, including how to pair `shamock` with `nexdk`, live at
-[techmefr.github.io/shamock](https://techmefr.github.io/shamock/).
+const response = await fetch('https://api.example.com/products/search', {
+  method: 'POST',
+  body: '{}',
+})
+const { data } = await response.json()
+
+mock.restore()
+```
+
+`installMock` replaces `globalThis.fetch`. Requests under `baseUrl` are
+answered from the seed, every other request goes to the previous `fetch`.
+`createMock` returns the same mock without touching the global.
+
+## API
+
+| Export | Role |
+|---|---|
+| `parseMock(resource, mock)` | Validate one value. |
+| `parseMockList(resource, mock)` | Validate an array, or wrap one value in an array. |
+| `MockValidationError` | Thrown on invalid data, with `issues` and `index`. |
+| `createMock(config)` | Returns `{ handle, fetch, install }`. |
+| `installMock(config)` | Installs the mock and returns it with `restore()`. |
+| `MockConfig`, `MockSeed`, `FetchLike`, `Mock`, `InstalledMock`, `MockableResource` | Types. |
+
+Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
+and `DELETE /<resource>`. `mutate` supports create and update only. Failures
+return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
+
+Full details in the [documentation](https://techmefr.github.io/shamock/).
 
 ## Ecosystem
 
-| Project | Role | Documentation |
-|---|---|---|
-| [neXdk](https://github.com/techmefr/nexdk) | One resource grammar for REST, GraphQL and WebSocket backends. | [Docs](https://techmefr.github.io/nexdk/) |
-| [beepr](https://github.com/techmefr/beepr) | Typed events and notification adapters. | [Docs](https://techmefr.github.io/beepr/) |
-| [shamock](https://github.com/techmefr/shamock) | Schema-validated mock data, fixtures and offline fallback. | [Docs](https://techmefr.github.io/shamock/) |
+| Project | Role |
+|---|---|
+| [nexdk](https://github.com/techmefr/nexdk) | One resource grammar for REST, GraphQL and WebSocket backends. |
+| [beepr](https://github.com/techmefr/beepr) | Typed events and notification adapters. |
+| [dialectr](https://github.com/techmefr/dialectr) | One query builder that compiles to lomkit, Strapi and PocketBase. |
 
-Use each library on its own, or compose them in application code. neXdk does not depend on beepr or shamock.
+Each library works on its own. None is published to npm yet.
 
 ## License
 

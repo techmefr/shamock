@@ -12,7 +12,7 @@ function parseMock<TResource extends MockableResource>(
 ): Promise<unknown>
 ```
 
-Validates a single value against `resource.schema` (any [Standard Schema](https://standardschema.dev) validator) and returns the parsed result. Async because Standard Schema's `validate()` may return a `Promise`. Throws `MockValidationError` if validation fails. The error exposes the original `issues`, includes field paths in its message, and carries an `index` for an invalid list item.
+Validates one value against `resource.schema` and returns the parsed result. Throws `MockValidationError` on failure.
 
 ## `parseMockList(resource, mock)`
 
@@ -23,39 +23,68 @@ function parseMockList<TResource extends MockableResource>(
 ): Promise<unknown[]>
 ```
 
-Same validation as `parseMock`, but always returns an array: if `mock` is already an array, every item is validated (in parallel); otherwise the single value is validated and wrapped in a one-element array.
-
-## `setupMirageMock(config)`
-
-```ts
-function setupMirageMock(config: MirageSdkConfig): Promise<unknown>
-```
-
-Spins up a [MirageJS](https://miragejs.com) server (dynamically imported — `miragejs` is an optional peer dependency, only required if you call this) backed by `config.seed`, serving three routes per resource name in the lomkit REST shape:
-
-| Route | Behavior |
-|-------|----------|
-| `POST /{baseUrl}/{resource}/search` | Applies filters and sorts, then optional `limit`/`page` pagination. Returns `{ data }`, plus pagination `meta` when a limit is supplied. |
-| `POST /{baseUrl}/{resource}/mutate` | Accepts `{ mutate: [...] }` with Lomkit create/update operations (`operation`, `attributes`, and `key` for updates), or flat records with an optional `id`. |
-| `DELETE /{baseUrl}/{resource}` | Accepts `{ resources: [id, ...] }` or `{ id }` and removes matching records. |
-
-`config`:
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `baseUrl` | `string` | Used as Mirage's `urlPrefix`, so seeded routes match your driver's configured base URL. |
-| `seed` | `MirageResourceSeed` (`{ [resourceName]: object[] }`) | Initial data per resource; also determines which resources get routes. |
-| `resources` | `Record<string, MockableResource>` | Optional schemas for validating seed data before the server starts. |
-| `timing` | `number` | Mock response delay in milliseconds; defaults to 300. |
-
-## Types
-
-| Type | Role |
-|------|------|
-| `MockableResource` | `{ schema: StandardSchemaV1 }` — the minimal shape `parseMock`/`parseMockList` accept. Any `nexdk` resource (from `defineResource`) already satisfies this. |
-| `MirageResourceSeed` | `{ [resourceName: string]: Record<string, unknown>[] }` — the seed data shape `setupMirageMock` expects. |
-| `MirageSdkConfig` | `{ baseUrl: string, seed: MirageResourceSeed, resources?: Record<string, MockableResource>, timing?: number }` — `setupMirageMock`'s config. |
+Validates every item of an array, or wraps one validated value in an array. Items are validated concurrently.
 
 ## `MockValidationError`
 
-Extends `Error` and exposes `issues` plus an optional zero-based list `index`. Use `instanceof MockValidationError` to distinguish fixture validation failures from other errors.
+Extends `Error`. Exposes `issues` (the original Standard Schema issues) and `index` (zero-based, set for invalid list items). The message holds field paths and the index.
+
+## `createMock(config)`
+
+```ts
+function createMock(config: MockConfig): Promise<Mock>
+```
+
+Validates the config and seeds, then returns a mock. Nothing is installed.
+
+Throws `MockValidationError` for invalid seeds, `RangeError` for an invalid `timing`, and an `Error` when `resources` names a resource missing from `seed`.
+
+## `installMock(config)`
+
+```ts
+function installMock(config: MockConfig): Promise<InstalledMock>
+```
+
+Same as `(await createMock(config)).install()`.
+
+## Types
+
+```ts
+interface MockConfig {
+  baseUrl: string
+  seed: MockSeed
+  resources?: Record<string, MockableResource>
+  timing?: number
+}
+
+interface MockSeed {
+  [resourceName: string]: Record<string, unknown>[]
+}
+
+interface Mock {
+  handle: (request: Request) => Promise<Response>
+  fetch: FetchLike
+  install: () => InstalledMock
+}
+
+interface InstalledMock extends Mock {
+  restore: () => void
+}
+
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+interface MockableResource {
+  schema: StandardSchemaV1
+}
+```
+
+| Member | Behavior |
+|---|---|
+| `handle` | Answers a `Request` as the mock. `404` outside `baseUrl`. |
+| `fetch` | Serves requests under `baseUrl`, forwards the rest to `globalThis.fetch`. |
+| `install` | Replaces `globalThis.fetch` and returns the mock with `restore`. |
+| `restore` | Removes this install. Safe to call twice, and in any order across nested installs. |
+
+Defaults: `timing` is `300` ms, accepted range `0` to `60000`. `baseUrl` must be absolute.
+
+Routes, payloads, errors and limits are described in the [Mock API guide](/shamock/guides/mocking/).

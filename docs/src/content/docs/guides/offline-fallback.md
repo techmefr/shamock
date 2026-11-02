@@ -3,7 +3,7 @@ title: Offline fallback
 description: Choose validated fixture data at the application boundary.
 ---
 
-shamock does not intercept neXdk calls or automatically replace failed requests. Select mock data explicitly in your application.
+shamock does not replace failed requests by itself. Select mock data explicitly in your application.
 
 ```ts
 import { parseMockList } from 'shamock'
@@ -17,7 +17,7 @@ const fixtures = [{ id: 1, name: 'Offline sample' }]
 async function loadProducts(useMockData: boolean) {
   if (useMockData) return parseMockList(product, fixtures)
 
-  const response = await fetch('/api/products')
+  const response = await fetch('https://api.example.com/products')
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   return response.json()
 }
@@ -25,8 +25,8 @@ async function loadProducts(useMockData: boolean) {
 const products = await loadProducts(true)
 ```
 
-The example deliberately selects a fixture mode. Your application can instead choose it for known network failures, while preserving authentication, authorization and validation errors.
+Your application can pick the fixture mode for known network failures, while keeping authentication, authorization and validation errors.
 
-The real endpoint's response shape is your application's contract. Validate and normalize it separately when necessary.
+To keep the same code path as production, install the [Mock API](/shamock/guides/mocking/) instead: your `fetch` calls stay unchanged and are answered from seed data.
 
-For neXdk resources, the existing `schema` already satisfies shamock's minimal contract. See [pairing with neXdk](/shamock/guides/pairing-with-nexdk/).
+For nexdk resources, see [pairing with nexdk](/shamock/guides/pairing-with-nexdk/).

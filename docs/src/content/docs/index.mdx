@@ -1,6 +1,6 @@
 ---
 title: shamock
-description: Schema-driven mock/fallback engine — validate fixtures against any Standard Schema, optional MirageJS server.
+description: Schema-driven mock engine — validate fixtures against any Standard Schema and serve them from an in-process mock API.
 template: splash
 hero:
   image:
@@ -21,50 +21,54 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Schema-validated mocks and offline fixtures, shaped like your real data.
+Schema-validated mocks and a mock API over `fetch`, shaped like your real data.
 
 ## Install
 
 ```bash
 pnpm add shamock
-# plus the validator of your choice, e.g. zod
-# optional, for the in-browser mock server:
-pnpm add miragejs
 ```
 
 ## Usage
 
 ```ts
-import { parseMock, parseMockList } from 'shamock'
-import { z } from 'zod'
+import { installMock } from 'shamock'
 
-const product = { schema: z.object({ id: z.number(), name: z.string() }) }
+const mock = await installMock({
+  baseUrl: 'https://api.example.com',
+  seed: { products: [{ id: 1, name: 'A' }] },
+  timing: 0,
+})
 
-await parseMock(product, { id: 1, name: 'A' })          // → validated single item
-await parseMockList(product, [{ id: 1, name: 'A' }])    // → T[] (single object or array)
+const response = await fetch('https://api.example.com/products/search', {
+  method: 'POST',
+  body: '{}',
+})
+const { data } = await response.json()
+
+mock.restore()
 ```
 
 <CardGrid>
 	<Card title="Validator-agnostic" icon="approve-check">
 		Validates against any [Standard Schema](https://standardschema.dev)
-		implementation — Zod, Valibot, ArkType. `shamock` never hardcodes one.
+		implementation: Zod, Valibot, ArkType.
 	</Card>
-	<Card title="Structural, not SDK-shaped" icon="puzzle">
-		Accepts any `{ schema }` object — a minimal `MockableResource`, not a
-		specific SDK's resource type. No dependency on `nexdk` or anything else.
+	<Card title="Mock API over fetch" icon="rocket">
+		`search`, `mutate` and `DELETE` routes served from seed data, with
+		atomic writes and bounded inputs.
 	</Card>
-	<Card title="Optional Mirage server" icon="rocket">
-		`setupMirageMock` spins up a full in-browser REST mock server from the
-		same seed data, when fixture validation alone isn't enough.
+	<Card title="Zero dependencies" icon="puzzle">
+		Accepts any `{ schema }` object. No SDK, no server, Node.js 22 or later.
 	</Card>
 </CardGrid>
 
 ## Ecosystem
 
-| Project | Role | Documentation |
-|---|---|---|
-| [neXdk](https://github.com/techmefr/nexdk) | One resource grammar for REST, GraphQL and WebSocket backends. | [Docs](https://techmefr.github.io/nexdk/) |
-| [beepr](https://github.com/techmefr/beepr) | Typed events and notification adapters. | [Docs](https://techmefr.github.io/beepr/) |
-| [shamock](https://github.com/techmefr/shamock) | Schema-validated mock data, fixtures and offline fallback. | [Docs](https://techmefr.github.io/shamock/) |
+| Project | Role |
+|---|---|
+| [nexdk](https://github.com/techmefr/nexdk) | One resource grammar for REST, GraphQL and WebSocket backends. |
+| [beepr](https://github.com/techmefr/beepr) | Typed events and notification adapters. |
+| [dialectr](https://github.com/techmefr/dialectr) | One query builder that compiles to lomkit, Strapi and PocketBase. |
 
-Use each library on its own, or compose them in application code. neXdk does not depend on beepr or shamock.
+Each library works on its own. None is published to npm yet.

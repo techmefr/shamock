@@ -11,7 +11,7 @@ export default defineConfig({
 		starlight({
 			title: 'shamock',
 			logo: { light: './src/assets/logo.svg', dark: './src/assets/logo-dark.svg', alt: '' },
-			description: 'Schema-driven mock/fallback engine — validate fixtures against any Standard Schema, optional MirageJS server.',
+			description: 'Schema-driven mock engine — validate fixtures against any Standard Schema and serve them from an in-process mock API.',
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/techmefr/shamock' },
 			],
@@ -49,8 +49,8 @@ export default defineConfig({
                 "slug": "guides/offline-fallback"
             },
             {
-                "label": "MirageJS mock server",
-                "slug": "guides/mirage"
+                "label": "Mock API",
+                "slug": "guides/mocking"
             },
             {
                 "label": "Pairing with neXdk",
@@ -72,15 +72,15 @@ export default defineConfig({
         "items": [
             {
                 "label": "neXdk",
-                "link": "https://techmefr.github.io/nexdk/"
+                "link": "https://github.com/techmefr/nexdk"
             },
             {
                 "label": "beepr",
-                "link": "https://techmefr.github.io/beepr/"
+                "link": "https://github.com/techmefr/beepr"
             },
             {
-                "label": "HeryJs",
-                "link": "https://techmefr.github.io/HeryJs/"
+                "label": "dialectr",
+                "link": "https://github.com/techmefr/dialectr"
             }
         ]
     }
