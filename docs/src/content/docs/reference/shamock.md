@@ -67,7 +67,7 @@ interface MockResource {
   unique?: string[]
   limits?: number[]
   searchable?: string[]
-  relations?: Record<string, MockRelation>
+  links?: Record<string, MockRelation>
 }
 
 interface MockRelation {

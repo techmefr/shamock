@@ -65,7 +65,7 @@ const direct = await mock.handle(new Request('https://api.example.com/products/s
 | `resources[name].unique` | Field names that must stay unique. |
 | `resources[name].limits` | Accepted `limit` values for this resource. |
 | `resources[name].searchable` | Fields read by `text` search. All string fields by default. |
-| `resources[name].relations` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
+| `resources[name].links` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
 | `profile` | `'lomkit'` opts in to the strict compatibility profile, see [Compatibility profile](#compatibility-profile). Omitted: the mock follows the JSON you give it. |
 | `limits` | Accepted `limit` values, a non-empty list of positive integers. Any positive `limit` by default, `[10, 25, 50]` with `profile: 'lomkit'`. |
 | `likeEscape` | `true`: a backslash escapes `%`, `_` and itself. `false` reads it literally. Default `true`, `false` with `profile: 'lomkit'`. |
@@ -113,7 +113,7 @@ The `search` wrapper is optional: a flat body works too. The response is a Larav
 - Sorting puts null and missing values last in both directions.
 - Any positive `limit` is accepted. When `limits` is set, `limit` must be one of them, otherwise `422` with `errors: { "search.limit": [...] }`. Without `limit`, a page holds 50 rows.
 - `selects: [{ field }]` keeps only those fields.
-- `includes: [{ relation, filters, sorts, selects, limit, includes }]` embeds a relation declared in `resources[name].relations`: `belongsTo` becomes an object or `null`, `hasMany` an array, with `limit` applied per parent. The `limit` of an include must be one of the `limits` of the related resource. An undeclared relation is ignored, so data embedded in your JSON stays as is (the lomkit profile answers `422`).
+- `includes: [{ relation, filters, sorts, selects, limit, includes }]` embeds a relation declared in `resources[name].links`: `belongsTo` becomes an object or `null`, `hasMany` an array, with `limit` applied per parent. The `limit` of an include must be one of the `limits` of the related resource. An undeclared relation is ignored, so data embedded in your JSON stays as is (the lomkit profile answers `422`).
 
 ### Mutate
 

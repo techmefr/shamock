@@ -187,12 +187,12 @@ describe('selects', () => {
 describe('includes', () => {
     const resources: Record<string, MockResource> = {
         users: {
-            relations: {
+            links: {
                 manager: { type: 'belongsTo', resource: 'users', foreignKey: 'manager_id' },
                 posts: { type: 'hasMany', resource: 'posts', foreignKey: 'user_id' },
             },
         },
-        posts: { limits: [1, 2], relations: { user: { type: 'belongsTo', resource: 'users', foreignKey: 'user_id' } } },
+        posts: { limits: [1, 2], links: { user: { type: 'belongsTo', resource: 'users', foreignKey: 'user_id' } } },
     }
     const seed = {
         users: [
@@ -272,7 +272,7 @@ describe('includes', () => {
 
     it('rejects a relation that targets an unknown resource', async () => {
         await expect(
-            createMock({ ...base, seed: { users: [] }, resources: { users: { relations: { posts: { type: 'hasMany', resource: 'posts', foreignKey: 'user_id' } } } } }),
+            createMock({ ...base, seed: { users: [] }, resources: { users: { links: { posts: { type: 'hasMany', resource: 'posts', foreignKey: 'user_id' } } } } }),
         ).rejects.toThrow('unknown resource "posts"')
     })
 })

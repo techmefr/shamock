@@ -28,7 +28,7 @@ export interface MockResource {
     unique?: string[]
     limits?: number[]
     searchable?: string[]
-    relations?: Record<string, MockRelation>
+    links?: Record<string, MockRelation>
 }
 
 export interface MockConfig {
@@ -161,7 +161,7 @@ function validatedNesting(depth: number | undefined): number | undefined {
 
 function validatedRelations(resources: Record<string, MockResource>, seed: Map<string, unknown>): void {
     for (const [name, resource] of Object.entries(resources)) {
-        for (const [relation, link] of Object.entries(resource.relations ?? {})) {
+        for (const [relation, link] of Object.entries(resource.links ?? {})) {
             if (link.type !== 'belongsTo' && link.type !== 'hasMany') throw new Error(`Relation "${name}.${relation}" has an unknown type`)
             if (!seed.has(link.resource)) throw new Error(`Relation "${name}.${relation}" targets unknown resource "${link.resource}"`)
         }
@@ -230,7 +230,7 @@ export async function createMock(config: MockConfig): Promise<Mock> {
 
     const searchOptions = (name: string): SearchOptions => {
         const resource = resourceOf(name)
-        const relations = Object.entries(resource?.relations ?? {}).map(([relation, link]) => [
+        const relations = Object.entries(resource?.links ?? {}).map(([relation, link]) => [
             relation,
             {
                 type: link.type,

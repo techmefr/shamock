@@ -105,7 +105,7 @@ return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 | `resources[name].unique` | Field names that must stay unique. |
 | `resources[name].limits` | Accepted `limit` values for this resource. |
 | `resources[name].searchable` | Fields read by `text` search. All string fields by default. |
-| `resources[name].relations` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
+| `resources[name].links` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
 | `profile` | `'lomkit'` opts in to the strict compatibility profile, see Behavior. Omitted: the mock follows the JSON you give it. |
 | `limits` | Accepted `limit` values. Any positive `limit` by default, `[10, 25, 50]` with `profile: 'lomkit'`. |
 | `likeEscape` | `true`: a backslash escapes `%`, `_` and itself. `false` reads it literally. Default `true`, `false` with `profile: 'lomkit'`. |
@@ -120,7 +120,7 @@ const mock = await createMock({
   resources: {
     users: {
       unique: ['email'],
-      relations: { manager: { type: 'belongsTo', resource: 'users', foreignKey: 'manager_id' } },
+      links: { manager: { type: 'belongsTo', resource: 'users', foreignKey: 'manager_id' } },
     },
   },
   failures: [{ method: 'POST', path: '/users/mutate', status: 503, times: 2 }],
@@ -135,7 +135,7 @@ The mock answers from the JSON you provide. Its default behavior is simple and d
 - `and` binds tighter than `or`, as in SQL: `a and b or c and d` is `(a and b) or (c and d)`. A group (`nested`) counts as one condition.
 - Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Unknown keys are ignored. An unknown operator answers `422`. An `includes` entry naming an undeclared relation is ignored, so data embedded in your JSON stays as is.
 - Any positive `limit` is accepted. Without `limit`, a page holds 50 rows. `limits` (and `resources[name].limits`) restrict the accepted values: anything else is a `422` with `errors: { 'search.limit': [...] }`.
-- `selects` keeps the listed fields. `includes` embeds relations declared in `resources[name].relations` (`belongsTo` as an object or `null`, `hasMany` as an array), with their own `filters`, `sorts`, `selects`, `limit` and nested `includes`.
+- `selects` keeps the listed fields. `includes` embeds relations declared in `resources[name].links` (`belongsTo` as an object or `null`, `hasMany` as an array), with their own `filters`, `sorts`, `selects`, `limit` and nested `includes`.
 - `like` is case-insensitive, `%` and `_` are wildcards, a backslash escapes them unless `likeEscape: false`. `in []` matches nothing.
 - Null sorts last in both directions. Dates are kept as given.
 - `text: { value }` keeps the records where a string field contains the value, case-insensitively (all string fields, or `resources[name].searchable`).
