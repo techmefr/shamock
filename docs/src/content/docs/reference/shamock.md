@@ -81,7 +81,7 @@ interface MockableResource {
 | Member | Behavior |
 |---|---|
 | `handle` | Answers a `Request` as the mock. `404` outside `baseUrl`. |
-| `fetch` | Serves requests under `baseUrl`, forwards the rest to `globalThis.fetch`. |
+| `fetch` | Serves requests under `baseUrl`, forwards the rest to the `fetch` captured when `createMock` was called. |
 | `install` | Replaces `globalThis.fetch` and returns the mock with `restore`. |
 | `restore` | Removes this install. Safe to call twice, and in any order across nested installs. |
 

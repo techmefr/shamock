@@ -94,6 +94,14 @@ Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
 and `DELETE /<resource>`. `mutate` supports create and update only. Failures
 return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 
+### Behavior
+
+- Generated ids are numbers when the seed ids are numbers, strings otherwise.
+- With `resources[name]`, created and updated records are validated: `422` with `errors: { field: [messages] }`.
+- Updating an unknown id returns `404`. Deleting one succeeds.
+- Search accepts `text: { value }` (case-insensitive substring on string values). `like` treats `` as an escape for `%`, `_` and ``. An unknown operator returns `422`.
+- `mock.fetch` forwards foreign URLs to the `fetch` captured at `createMock`.
+
 Full details in the [documentation](https://techmefr.github.io/shamock/).
 
 ## Ecosystem

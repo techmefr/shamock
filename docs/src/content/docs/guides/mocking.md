@@ -51,7 +51,7 @@ const response = await mock.fetch('https://api.example.com/products/search', {
 const direct = await mock.handle(new Request('https://api.example.com/products/search', { method: 'POST' }))
 ```
 
-- `fetch` serves requests under `baseUrl` and forwards the rest to `globalThis.fetch`.
+- `fetch` serves requests under `baseUrl` and forwards the rest to the `fetch` that existed when `createMock` was called. Assigning `mock.fetch` to `globalThis.fetch` is therefore safe.
 - `handle` takes a `Request` and always answers as the mock (`404` outside `baseUrl`).
 
 ## Configuration
@@ -60,7 +60,7 @@ const direct = await mock.handle(new Request('https://api.example.com/products/s
 |---|---|
 | `baseUrl` | Absolute URL. Routes live under its path. |
 | `seed` | `{ [resource]: object[] }`. Each key becomes a resource. |
-| `resources` | Optional `{ [resource]: { schema } }`. Seeds are validated and replaced by the parsed output. A name missing from `seed` throws. |
+| `resources` | Optional `{ [resource]: { schema } }`. Seeds are validated and replaced by the parsed output, and every record written by `mutate` is validated too. A name missing from `seed` throws. |
 | `timing` | Delay in ms, from `0` to `60000`. Default `300`. Out of range throws `RangeError`. |
 
 Invalid seed data throws `MockValidationError` from `createMock`.
@@ -93,7 +93,9 @@ await fetch('https://api.example.com/products/search', {
 
 The `search` wrapper is optional: a flat body works too. The response is `{ data }`, plus `meta` (`current_page`, `last_page`, `per_page`, `total`) when `limit` is set.
 
-- Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `like`, `not like`, `in`, `not in`. `like` is case-insensitive, `%` matches any run, `_` one character.
+- Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `like`, `not like`, `in`, `not in`. Any other operator returns `422` `Invalid search`.
+- `like` is case-insensitive, `%` matches any run, `_` one character. A backslash escapes `%`, `_` and ``, so `Jo_el` matches the literal `Jo_el`.
+- `text: { value }` (next to `filters`, inside or outside `search`) keeps the records where at least one top-level string value contains the text, case-insensitively. Numbers, arrays and nested values are not searched, an empty text is ignored, and it combines with `filters` using `and`.
 - Filters combine from left to right with `and`, or `or` through `type: 'or'`. A filter can hold `nested` filters.
 - Filters on `id` compare as text, so `1` and `'1'` match.
 
@@ -113,7 +115,11 @@ await fetch('https://api.example.com/products/mutate', {
 
 The response is `{ data }` with the written records. Only `create` and `update` exist: any other `operation` returns `422`. A flat record without `operation` is an update when it has an `id`, otherwise a create.
 
-All mutations of one request apply or none do. If one fails, the store is left unchanged.
+An `update` of an unknown id returns `404` `{ "message": "Not found", "errors": {} }`.
+
+When `resources[name]` exists, each created record and each updated record (after the merge) is validated with its schema. A failure returns `422` with `message` `The given data was invalid.` and `errors` as `{ field: [messages] }`, nested paths joined with dots and a root issue under `record`. Only the first invalid record is reported. The stored record is the one you sent, not the schema output.
+
+All mutations of one request apply or none do. If one fails, the store is left unchanged. Writes are applied one request at a time.
 
 ### Delete
 
@@ -124,12 +130,12 @@ await fetch('https://api.example.com/products', {
 })
 ```
 
-Accepts `{ resources: [id, ...] }` or `{ id }`. The response is `{ "success": true }`. Unknown ids are ignored. Deletion is atomic like mutate.
+Accepts `{ resources: [id, ...] }` or `{ id }`. The response is `{ "success": true }`. Deleting an unknown id is a success (idempotent), unlike updating one. Deletion is atomic like mutate.
 
 ## Ids
 
 - A record keeps the type of the `id` you gave it, number or string.
-- A record without `id` gets the next free integer as a string.
+- A record without `id` gets the next free integer: a number when the seed of the resource is not empty and all its ids are numbers, otherwise a string.
 - A duplicate id returns `422`.
 - Keys and filters on `id` are compared as text.
 
@@ -139,9 +145,9 @@ Errors are `{ "message": "...", "errors": {} }`.
 
 | Status | Cause |
 |---|---|
-| `404` | Unknown resource, route or method, or a URL outside `baseUrl` on `handle`. |
+| `404` | Unknown resource, route or method, a URL outside `baseUrl` on `handle`, or an update of an unknown id. |
 | `413` | Body larger than 1 MB, counted in bytes. |
-| `422` | Invalid JSON, invalid payload, unsupported operation, duplicate or invalid id, limit exceeded. |
+| `422` | Invalid JSON, invalid payload, unsupported operation, unknown search operator, schema validation failure, duplicate or invalid id, limit exceeded. |
 
 ## Limits
 
