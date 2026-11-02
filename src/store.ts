@@ -21,7 +21,8 @@ export interface Store {
     preview: <T>(work: () => T) => T
 }
 
-export function createStore(items: Record<string, unknown>[]): Store {
+export function createStore(items: Record<string, unknown>[], dates = false): Store {
+    const stored = (attributes: Record<string, unknown>): Record<string, unknown> => (dates ? normalizeDates(attributes) : attributes)
     let rows = new Map<string, SearchRecord>()
     let nextId = 1
     const numericIds = items.length > 0 && items.every(item => typeof item['id'] === 'number')
@@ -43,7 +44,7 @@ export function createStore(items: Record<string, unknown>[]): Store {
         }
         const numeric = Number(id)
         if (Number.isSafeInteger(numeric) && String(numeric) === String(id) && numeric >= nextId) nextId = numeric + 1
-        const record = { ...normalizeDates(attributes), id }
+        const record = { ...stored(attributes), id }
         rows.set(String(id), record)
         return { ...record }
     }
@@ -68,7 +69,7 @@ export function createStore(items: Record<string, unknown>[]): Store {
         update(key, attributes) {
             const current = rows.get(String(toId(key)))
             if (current === undefined) return null
-            const record = { ...current, ...normalizeDates(attributes), id: current['id'] }
+            const record = { ...current, ...stored(attributes), id: current['id'] }
             rows.set(String(current['id']), record)
             return { ...record }
         },

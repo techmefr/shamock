@@ -35,6 +35,7 @@ export interface MockConfig {
     baseUrl: string
     seed: MockSeed
     resources?: Record<string, MockResource>
+    profile?: 'lomkit'
     limits?: number[]
     likeEscape?: boolean
     maxNestingDepth?: number
@@ -67,35 +68,35 @@ function mergeErrors(target: FieldErrors, source: FieldErrors): void {
     for (const [key, messages] of Object.entries(source)) target[key] = [...(target[key] ?? []), ...messages]
 }
 
-function schemaErrors(error: MockValidationError, prefix: string): FieldErrors {
+function schemaErrors(error: MockValidationError, prefix: string, fallback: string): FieldErrors {
     const errors: FieldErrors = {}
     for (const issue of error.issues) {
         const path = (issue.path ?? []).map(segment => String(typeof segment === 'object' ? segment.key : segment)).join('.')
-        const key = path === '' ? prefix : `${prefix}.${path}`
+        const key = path === '' ? fallback : prefix === '' ? path : `${prefix}.${path}`
         errors[key] = [...(errors[key] ?? []), issue.message]
     }
     return errors
 }
 
-async function validateRecord(resource: MockResource, record: SearchRecord, index: number): Promise<FieldErrors> {
+async function validateRecord(resource: MockResource, record: SearchRecord, prefix: string, fallback: string): Promise<FieldErrors> {
     if (resource.schema === undefined) return {}
     try {
         await parseMock({ schema: resource.schema }, record)
         return {}
     } catch (error) {
-        if (error instanceof MockValidationError) return schemaErrors(error, `mutate.${index}.attributes`)
+        if (error instanceof MockValidationError) return schemaErrors(error, prefix, fallback)
         throw error
     }
 }
 
-function takenErrors(unique: string[], applied: AppliedMutation[], rows: SearchRecord[]): FieldErrors {
+function takenErrors(unique: string[], applied: AppliedMutation[], rows: SearchRecord[], prefixed: boolean): FieldErrors {
     const errors: FieldErrors = {}
     applied.forEach(({ record, attributes }, index) => {
         for (const field of unique) {
             const value = record[field]
             if (!Object.hasOwn(attributes, field) || value === undefined || value === null) continue
             if (rows.some(row => row['id'] !== record['id'] && row[field] === value)) {
-                errors[`mutate.${index}.attributes.${field}`] = [`The ${field} has already been taken.`]
+                errors[prefixed ? `mutate.${index}.attributes.${field}` : field] = [`The ${field} has already been taken.`]
             }
         }
     })
@@ -199,13 +200,15 @@ async function requiredBodyOf(request: Request): Promise<Record<string, unknown>
 
 export async function createMock(config: MockConfig): Promise<Mock> {
     const timing = validatedTiming(config.timing)
-    const limits = validatedLimits(config.limits) ?? DEFAULT_LIMITS
+    if (config.profile !== undefined && config.profile !== 'lomkit') throw new RangeError('Invalid profile: expected "lomkit"')
+    const lomkit = config.profile === 'lomkit'
+    const limits = validatedLimits(config.limits) ?? (lomkit ? DEFAULT_LIMITS : undefined)
     const nesting = validatedNesting(config.maxNestingDepth)
     const failureFor = createFailures(config.failures)
     const seed = await validatedSeed(config)
     const resources = config.resources ?? {}
     validatedRelations(resources, seed)
-    const stores = new Map<string, Store>([...seed].map(([name, items]) => [name, createStore(items)]))
+    const stores = new Map<string, Store>([...seed].map(([name, items]) => [name, createStore(items, lomkit)]))
     const base = new URL(config.baseUrl)
     const origin = globalThis.fetch
     let writes: Promise<unknown> = Promise.resolve()
@@ -236,7 +239,7 @@ export async function createMock(config: MockConfig): Promise<Mock> {
                 options: () => searchOptions(link.resource),
             },
         ])
-        return { limits: resource?.limits ?? limits, searchable: resource?.searchable, likeEscape: config.likeEscape, maxNestingDepth: nesting, relations: Object.fromEntries(relations) }
+        return { lomkit, limits: resource?.limits ?? limits, searchable: resource?.searchable, likeEscape: config.likeEscape ?? !lomkit, maxNestingDepth: nesting, relations: Object.fromEntries(relations) }
     }
 
     const route = async (method: string, path: string, request: Request): Promise<Response> => {
@@ -266,12 +269,15 @@ export async function createMock(config: MockConfig): Promise<Mock> {
             return exclusive(async () => {
                 const previewed = store.preview(() => {
                     const done = apply()
-                    return { done, taken: takenErrors(resource?.unique ?? [], done, store.all()) }
+                    return { done, taken: takenErrors(resource?.unique ?? [], done, store.all(), lomkit) }
                 })
                 const errors: FieldErrors = {}
                 mergeErrors(errors, previewed.taken)
                 if (resource !== undefined) {
-                    for (const [index, { record }] of previewed.done.entries()) mergeErrors(errors, await validateRecord(resource, record, index))
+                    for (const [index, { record }] of previewed.done.entries()) {
+                        const prefix = lomkit ? `mutate.${index}.attributes` : ''
+                        mergeErrors(errors, await validateRecord(resource, record, prefix, lomkit ? prefix : 'record'))
+                    }
                 }
                 if (Object.keys(errors).length > 0) throw invalidData(errors)
                 request.signal.throwIfAborted()
@@ -285,15 +291,17 @@ export async function createMock(config: MockConfig): Promise<Mock> {
         if (method === 'DELETE' && action === undefined) {
             const ids = idsToRemove(await requiredBodyOf(request))
             request.signal.throwIfAborted()
-            if (ids.length === 0) {
+            if (lomkit && ids.length === 0) {
                 const message = 'The resources field is required.'
                 throw new HttpError(422, message, { resources: [message] })
             }
             return exclusive(async () => {
                 const errors: FieldErrors = {}
-                ids.forEach((id, index) => {
-                    if (!store.has(id)) errors[`resources.${index}`] = [`The selected resources.${index} is invalid.`]
-                })
+                if (lomkit) {
+                    ids.forEach((id, index) => {
+                        if (!store.has(id)) errors[`resources.${index}`] = [`The selected resources.${index} is invalid.`]
+                    })
+                }
                 if (Object.keys(errors).length > 0) throw new HttpError(422, Object.values(errors)[0]?.[0] ?? 'Invalid ids', errors)
                 store.transaction(() => ids.forEach(id => store.remove(id)))
                 return json({ success: true })

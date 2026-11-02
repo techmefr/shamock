@@ -2,8 +2,9 @@ import { toStoredDate } from './dates.ts'
 import { HttpError } from './http-error.ts'
 import { isRecord, own } from './record.ts'
 
-const DEFAULT_NESTING = 1
+const LOMKIT_NESTING = 1
 export const MAX_NESTING = 10
+const DEFAULT_NESTING = MAX_NESTING
 const MAX_FILTERS = 100
 const MAX_LIST_VALUES = 1000
 const MAX_PATTERN_LENGTH = 256
@@ -49,6 +50,7 @@ export interface SearchRelation {
 }
 
 export interface SearchOptions {
+    lomkit?: boolean
     limits?: number[]
     searchable?: string[]
     likeEscape?: boolean
@@ -81,6 +83,8 @@ const invalid = (what: string, errors: Record<string, string[]> = {}): HttpError
 
 const foldAscii = (value: string): string => value.replace(/[A-Z]/g, letter => letter.toLowerCase())
 
+const fold = (value: string, lomkit: boolean): string => (lomkit ? foldAscii(value) : value.toLowerCase())
+
 function likeTokens(pattern: string, escape: boolean): LikeToken[] {
     const tokens: LikeToken[] = []
     for (let index = 0; index < pattern.length; index++) {
@@ -94,9 +98,9 @@ function likeTokens(pattern: string, escape: boolean): LikeToken[] {
     return tokens
 }
 
-function likeMatch(value: string, pattern: string, escape: boolean): boolean {
-    const text = foldAscii(value)
-    const glob = likeTokens(foldAscii(pattern), escape)
+function likeMatch(value: string, pattern: string, escape: boolean, lomkit: boolean): boolean {
+    const text = fold(value, lomkit)
+    const glob = likeTokens(fold(pattern, lomkit), escape)
     let t = 0
     let p = 0
     let star = -1
@@ -128,15 +132,15 @@ function ordered(left: unknown, right: unknown): number | undefined {
     return undefined
 }
 
-function likeResult(left: unknown, right: unknown, escape: boolean): boolean | undefined {
+function likeResult(left: unknown, right: unknown, options: SearchOptions): boolean | undefined {
     if (typeof right !== 'string') return undefined
     if (typeof left !== 'string' && typeof left !== 'number' && typeof left !== 'boolean') return undefined
-    return likeMatch(String(left), right, escape)
+    return likeMatch(String(left), right, options.likeEscape !== false, options.lomkit === true)
 }
 
 const isNull = (value: unknown): boolean => value === undefined || value === null
 
-function compare(left: unknown, operator: string, right: unknown, escape: boolean): boolean {
+function compare(left: unknown, operator: string, right: unknown, options: SearchOptions): boolean {
     switch (operator) {
         case '=':
             return left === right
@@ -151,12 +155,13 @@ function compare(left: unknown, operator: string, right: unknown, escape: boolea
         case '<=':
             return (ordered(left, right) ?? Number.NaN) <= 0
         case 'like':
-            return likeResult(left, right, escape) === true
+            return likeResult(left, right, options) === true
         case 'not like':
-            return likeResult(left, right, escape) === false
+            return likeResult(left, right, options) === false
         case 'in':
-            return Array.isArray(right) && !isNull(left) && right.includes(left)
+            return Array.isArray(right) && (options.lomkit !== true || !isNull(left)) && right.includes(left)
         case 'not in':
+            if (options.lomkit !== true) return Array.isArray(right) && !right.includes(left)
             return Array.isArray(right) && !isNull(left) && !right.includes(null) && !right.includes(left)
         default:
             return false
@@ -168,7 +173,7 @@ const asText = (value: unknown): unknown => {
     return typeof value === 'string' || typeof value === 'number' ? String(value) : value
 }
 
-function matches(record: SearchRecord, filters: SearchFilter[], escape: boolean): boolean {
+function matches(record: SearchRecord, filters: SearchFilter[], options: SearchOptions): boolean {
     let group = true
     let result = false
     filters.forEach((filter, index) => {
@@ -176,8 +181,8 @@ function matches(record: SearchRecord, filters: SearchFilter[], escape: boolean)
         const normalize = field === 'id' ? asText : (value: unknown): unknown => value
         const current =
             filter.nested !== undefined
-                ? matches(record, filter.nested, escape)
-                : compare(normalize(own(record, field)), filter.operator ?? '=', normalize(filter.value), escape)
+                ? matches(record, filter.nested, options)
+                : compare(normalize(own(record, field)), filter.operator ?? '=', normalize(filter.value), options)
         if (index > 0 && filter.type === 'or') {
             result = result || group
             group = current
@@ -188,7 +193,7 @@ function matches(record: SearchRecord, filters: SearchFilter[], escape: boolean)
     return result || group
 }
 
-function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord[] {
+function sortRecords(records: SearchRecord[], sorts: SearchSort[], lomkit: boolean): SearchRecord[] {
     if (sorts.length === 0) return records
     return [...records].sort((a, b) => {
         for (const sort of sorts) {
@@ -200,7 +205,9 @@ function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord
             if (isNull(left)) order = -1
             else if (isNull(right)) order = 1
             else if (left !== right) order = (left as number | string) > (right as number | string) ? 1 : -1
-            if (order !== 0) return sort.direction === 'desc' ? -order : order
+            if (order === 0) continue
+            if (!lomkit && (isNull(left) || isNull(right))) return -order
+            return sort.direction === 'desc' ? -order : order
         }
         return 0
     })
@@ -222,22 +229,23 @@ function listOf(value: unknown, what: string): Record<string, unknown>[] {
     })
 }
 
-function valueOf(item: Record<string, unknown>, operator: string | undefined): unknown {
+function valueOf(item: Record<string, unknown>, operator: string | undefined, lomkit: boolean): unknown {
     const value = own(item, 'value')
     if (Array.isArray(value) && value.length > MAX_LIST_VALUES) throw invalid(`value lists are limited to ${MAX_LIST_VALUES} items`)
     if ((operator === 'like' || operator === 'not like') && typeof value === 'string' && value.length > MAX_PATTERN_LENGTH) {
         throw invalid(`like patterns are limited to ${MAX_PATTERN_LENGTH} characters`)
     }
+    if (!lomkit) return value
     if (operator === 'in' && Array.isArray(value) && value.length === 0) throw invalid('"in" needs at least one value')
     return Array.isArray(value) ? value.map(toStoredDate) : toStoredDate(value)
 }
 
-function filtersOf(value: unknown, maxDepth: number, budget = { left: MAX_FILTERS }, depth = 0): SearchFilter[] {
+function filtersOf(value: unknown, maxDepth: number, lomkit: boolean, budget = { left: MAX_FILTERS }, depth = 0): SearchFilter[] {
     if (depth > maxDepth) throw invalid('filters are nested too deeply')
     return listOf(value, 'filters').map(item => {
         if (--budget.left < 0) throw invalid(`filters are limited to ${MAX_FILTERS}`)
         const unknown = Object.keys(item).find(key => !['field', 'operator', 'value', 'type', 'nested'].includes(key))
-        if (unknown !== undefined) throw invalid(`unknown filter key "${unknown}"`)
+        if (lomkit && unknown !== undefined) throw invalid(`unknown filter key "${unknown}"`)
         const nested = own(item, 'nested')
         const operator = optionalString(item, 'operator')
         if (operator !== undefined && !OPERATORS.has(operator)) throw invalid(`unknown operator "${operator}"`)
@@ -245,8 +253,8 @@ function filtersOf(value: unknown, maxDepth: number, budget = { left: MAX_FILTER
             field: optionalString(item, 'field'),
             operator,
             type: optionalString(item, 'type'),
-            value: valueOf(item, operator),
-            nested: nested === undefined ? undefined : filtersOf(nested, maxDepth, budget, depth + 1),
+            value: valueOf(item, operator, lomkit),
+            nested: nested === undefined ? undefined : filtersOf(nested, maxDepth, lomkit, budget, depth + 1),
         }
     })
 }
@@ -282,7 +290,8 @@ function textOf(search: Record<string, unknown>): string | undefined {
 const hasLike = (filters: SearchFilter[]): boolean =>
     filters.some(filter => filter.operator === 'like' || filter.operator === 'not like' || (filter.nested !== undefined && hasLike(filter.nested)))
 
-function checkKeys(search: Record<string, unknown>, allowed: string[]): void {
+function checkKeys(search: Record<string, unknown>, allowed: string[], lomkit: boolean): void {
+    if (!lomkit) return
     for (const key of Object.keys(search)) {
         if (allowed.includes(key)) continue
         if (!REFUSED_KEYS.includes(key)) throw invalid(`unknown key "${key}"`)
@@ -314,10 +323,11 @@ function includesOf(value: unknown, options: SearchOptions, path: string): Parse
 }
 
 function parseSearch(search: Record<string, unknown>, options: SearchOptions, path: string, allowed: string[]): ParsedSearch {
-    checkKeys(search, allowed)
-    const filters = filtersOf(own(search, 'filters'), options.maxNestingDepth ?? DEFAULT_NESTING)
+    const lomkit = options.lomkit === true
+    checkKeys(search, allowed, lomkit)
+    const filters = filtersOf(own(search, 'filters'), options.maxNestingDepth ?? (lomkit ? LOMKIT_NESTING : DEFAULT_NESTING), lomkit)
     const text = textOf(search)
-    if (text !== undefined && hasLike(filters)) throw invalid('"like" filters cannot be combined with text search')
+    if (lomkit && text !== undefined && hasLike(filters)) throw invalid('"like" filters cannot be combined with text search')
     return {
         filters,
         sorts: sortsOf(own(search, 'sorts')),
@@ -330,18 +340,20 @@ function parseSearch(search: Record<string, unknown>, options: SearchOptions, pa
 }
 
 const containsText = (record: SearchRecord, text: string, options: SearchOptions): boolean => {
-    const pattern = `%${text}%`
-    return Object.entries(record).some(
-        ([field, value]) =>
-            typeof value === 'string' && (options.searchable === undefined || options.searchable.includes(field)) && likeMatch(value, pattern, options.likeEscape !== false),
-    )
+    const lomkit = options.lomkit === true
+    const needle = text.toLowerCase()
+    return Object.entries(record).some(([field, value]) => {
+        if (typeof value !== 'string' || (options.searchable !== undefined && !options.searchable.includes(field))) return false
+        return lomkit ? likeMatch(value, `%${text}%`, options.likeEscape !== false, true) : value.toLowerCase().includes(needle)
+    })
 }
 
 function rowsOf(records: SearchRecord[], parsed: ParsedSearch): SearchRecord[] {
     const { text, options } = parsed
     return sortRecords(
-        records.filter(record => matches(record, parsed.filters, options.likeEscape !== false) && (text === undefined || containsText(record, text, options))),
+        records.filter(record => matches(record, parsed.filters, options) && (text === undefined || containsText(record, text, options))),
         parsed.sorts,
+        options.lomkit === true,
     )
 }
 

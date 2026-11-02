@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { createMock } from '../src/mock.ts'
+import { applySearch } from '../src/search.ts'
 import type { MockConfig, MockResource } from '../src/mock.ts'
 
 const base = { baseUrl: 'http://api.test', timing: 0 }
@@ -8,7 +9,7 @@ const base = { baseUrl: 'http://api.test', timing: 0 }
 type Row = Record<string, any>
 
 async function start(config: Partial<MockConfig> & { seed: MockConfig['seed'] }) {
-    const mock = await createMock({ ...base, ...config })
+    const mock = await createMock({ profile: 'lomkit', ...base, ...config })
     const call = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
         const response = await mock.fetch(`http://api.test${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) })
         return { status: response.status, body: await response.json() }
@@ -18,6 +19,8 @@ async function start(config: Partial<MockConfig> & { seed: MockConfig['seed'] })
         (await search({ ...(search_ as object), limit: 50 }, resource)).body.data.map((row: Row) => row.name)
     return { mock, call, search, names }
 }
+
+const plain = (config: Partial<MockConfig> & { seed: MockConfig['seed'] }) => start({ ...config, profile: undefined })
 
 const FIRST_NAMES = ['Alice', 'Bob', 'Carla', 'David', 'Emma', 'Felix', 'Gaia', 'Hugo', 'Iris', 'Jules', 'Kevin', 'Lea', 'Mona', 'Nils', 'Olga', 'Paul', 'Quinn', 'Rita', 'Sam', 'Tina']
 const ROLES = ['admin', 'editor', 'viewer']
@@ -163,7 +166,7 @@ describe('text search scope', () => {
     })
 
     it('searches only the searchable fields of the resource', async () => {
-        const { names } = await start({ seed, resources: { users: { searchable: ['name', 'email'] } } })
+        const { names } = await plain({ seed, resources: { users: { searchable: ['name', 'email'] } } })
         expect(await names({ text: { value: 'guest' } })).toEqual(['Bob'])
     })
 
@@ -175,7 +178,7 @@ describe('text search scope', () => {
 
 describe('selects', () => {
     it('keeps only the selected fields', async () => {
-        const { search } = await start({ seed: { users: [{ id: 1, name: 'a', age: 3 }] } })
+        const { search } = await plain({ seed: { users: [{ id: 1, name: 'a', age: 3 }] } })
         expect((await search({ selects: [{ field: 'id' }, { field: 'name' }] })).body.data).toEqual([{ id: 1, name: 'a' }])
         expect((await search({ selects: [{}] })).status).toBe(422)
     })
@@ -206,13 +209,13 @@ describe('includes', () => {
     }
 
     it('embeds a belongsTo as an object or null', async () => {
-        const { search } = await start({ seed, resources })
+        const { search } = await plain({ seed, resources })
         const rows = (await search({ includes: [{ relation: 'manager', selects: [{ field: 'id' }, { field: 'name' }] }] })).body.data
         expect(rows.map((row: Row) => row.manager)).toEqual([null, { id: 1, name: 'boss' }, { id: 1, name: 'boss' }])
     })
 
     it('embeds a hasMany with filters, sorts, selects and a limit per parent', async () => {
-        const { search } = await start({ seed, resources })
+        const { search } = await plain({ seed, resources })
         const rows = (
             await search({
                 filters: [filter('id', 'in', [1, 2, 3])],
@@ -231,28 +234,32 @@ describe('includes', () => {
     })
 
     it('nests includes and keeps the parent fields', async () => {
-        const { search } = await start({ seed, resources })
+        const { search } = await plain({ seed, resources })
         const row = (await search({ filters: [filter('id', '=', 2)], includes: [{ relation: 'posts', includes: [{ relation: 'user', selects: [{ field: 'name' }] }] }] })).body.data[0]
         expect(row).toEqual({ id: 2, name: 'dev', manager_id: 1, posts: [{ id: 4, user_id: 2, title: 'p4', views: 2, published: true, user: { name: 'dev' } }] })
     })
 
     it('applies the limits of the related resource', async () => {
-        const { search } = await start({ seed, resources })
+        const { search } = await plain({ seed, resources })
         expect((await search({ includes: [{ relation: 'posts', limit: 5 }] })).status).toBe(422)
         expect((await search({ includes: [{ relation: 'posts', limit: 2 }] })).status).toBe(200)
     })
 
     it('refuses unknown relations and unsupported include keys', async () => {
-        const { search } = await start({ seed, resources })
+        const { search } = await plain({ seed, resources })
         expect((await search({ includes: [{ relation: 'nope' }] })).status).toBe(422)
         expect((await search({ includes: [{ relation: 'toString' }] })).status).toBe(422)
         expect((await search({ includes: [{}] })).status).toBe(422)
+    })
+
+    it('refuses unsupported include keys under the lomkit profile', async () => {
+        const { search } = await start({ seed, resources })
         expect((await search({ includes: [{ relation: 'manager', text: { value: 'x' } }] })).status).toBe(422)
         expect((await search({ includes: [{ relation: 'manager', aggregates: [{ relation: 'posts', type: 'count' }] }] })).status).toBe(422)
     })
 
     it('refuses an include on a resource without relations', async () => {
-        const { search } = await start({ seed })
+        const { search } = await plain({ seed })
         expect((await search({ includes: [{ relation: 'manager' }] })).status).toBe(422)
     })
 
@@ -278,10 +285,10 @@ describe('limits', () => {
     })
 
     it('takes the limits of the config, then of the resource', async () => {
-        const configured = await start({ seed, limits: [5] })
+        const configured = await plain({ seed, limits: [5] })
         expect((await configured.search({ limit: 5 })).body.data).toHaveLength(5)
         expect((await configured.search({ limit: 10 })).status).toBe(422)
-        const perResource = await start({ seed, limits: [5], resources: { users: { limits: [20] } } })
+        const perResource = await plain({ seed, limits: [5], resources: { users: { limits: [20] } } })
         expect((await perResource.search({ limit: 20 })).body.data).toHaveLength(20)
         expect((await perResource.search({ limit: 5 })).status).toBe(422)
     })
@@ -324,6 +331,16 @@ describe('mutation errors', () => {
         expect((await call('POST', '/users/mutate', { mutate: [{ operation: 'create', attributes: { name: 'Cy', email: null } }] })).status).toBe(200)
     })
 
+    it('answers the invalid payload with the message and the prefixed keys of the schema', async () => {
+        const { call, search } = await start({ seed: { users: [{ id: 1, name: 'Ann', email: 'ann@x.test' }] }, resources })
+        const result = await call('POST', '/users/mutate', { mutate: [{ operation: 'create', attributes: { name: 'x', email: 'nope' } }] })
+        expect(result.status).toBe(422)
+        expect(result.body.message).toBe('The given data was invalid.')
+        expect(Object.keys(result.body.errors).sort()).toEqual(['mutate.0.attributes.email', 'mutate.0.attributes.name'])
+        expect(result.body.errors['mutate.0.attributes.name']).toEqual([expect.any(String)])
+        expect((await search({})).body.total).toBe(1)
+    })
+
     it('detects a duplicate inside one request', async () => {
         const { call } = await start({ seed, resources })
         const result = await call('POST', '/users/mutate', {
@@ -352,7 +369,46 @@ describe('delete', () => {
         const result = await call('DELETE', '/users', { resources: [1, 99, 98] })
         expect(result.status).toBe(422)
         expect(Object.keys(result.body.errors)).toEqual(['resources.1', 'resources.2'])
+        expect(result.body.message).toBe('The selected resources.1 is invalid.')
         expect((await search({})).body.total).toBe(2)
+    })
+})
+
+describe('sorting nulls', () => {
+    const rows = [{ id: 1 }, { id: 2, n: 5 }, { id: 3, n: null }, { id: 4, n: 1 }, { id: 5 }]
+
+    it('sorts null and undefined first ascending and last descending like SQLite, keeping order stable', () => {
+        const options = { lomkit: true }
+        const asc = applySearch(rows, { sorts: [{ field: 'n', direction: 'asc' }] }, options).data.map(r => r['id'])
+        const desc = applySearch(rows, { sorts: [{ field: 'n', direction: 'desc' }] }, options).data.map(r => r['id'])
+        expect(asc).toEqual([1, 3, 5, 4, 2])
+        expect(desc).toEqual([2, 4, 1, 3, 5])
+    })
+})
+
+describe('profile validation', () => {
+    it('rejects an unknown profile', async () => {
+        await expect(createMock({ ...base, seed: { users: [] }, profile: 'other' as 'lomkit' })).rejects.toThrow('Invalid profile')
+    })
+
+    it('answers the delete of a missing id with the lomkit body and keeps the rows', async () => {
+        const { call, search } = await start({ seed: { users: [{ id: 1 }] } })
+        const response = await call('DELETE', '/users', { resources: [9] })
+        expect(response.status).toBe(422)
+        expect(response.body).toEqual({ message: 'The selected resources.0 is invalid.', errors: { 'resources.0': ['The selected resources.0 is invalid.'] } })
+        expect((await search({})).body.data).toEqual([{ id: 1 }])
+    })
+
+    it('rejects a store that would exceed the maximum number of records through the limits option', async () => {
+        const { call } = await start({ seed: { users: Array.from({ length: 10_000 }, (_, index) => ({ id: index })) }, limits: [10_000] })
+        expect((await call('POST', '/users/mutate', { mutate: [{ operation: 'create', attributes: {} }] })).status).toBe(422)
+    })
+
+    it('paginates with a configured limit', async () => {
+        const { search } = await start({ seed: { users: Array.from({ length: 5 }, (_, index) => ({ id: index + 1 })) }, limits: [2] })
+        const body = (await search({ page: 2, limit: 2 })).body
+        expect(body.data).toEqual([{ id: 3 }, { id: 4 }])
+        expect(body.per_page).toBe(2)
     })
 })
 
@@ -361,7 +417,7 @@ describe('failure injection', () => {
     const config = (failures: MockConfig['failures']) => ({ seed, failures })
 
     it('answers a status on matching calls only', async () => {
-        const { call } = await start(config([{ method: 'post', path: '/users/search', status: 503 }]))
+        const { call } = await plain(config([{ method: 'post', path: '/users/search', status: 503 }]))
         const failed = await call('POST', '/users/search', {})
         expect(failed.status).toBe(503)
         expect(failed.body).toEqual({ message: 'Injected failure', errors: {} })
@@ -370,19 +426,19 @@ describe('failure injection', () => {
     })
 
     it('counts calls with after and times', async () => {
-        const { call } = await start(config([{ status: 500, after: 1, times: 2 }]))
+        const { call } = await plain(config([{ status: 500, after: 1, times: 2 }]))
         const statuses: number[] = []
         for (let index = 0; index < 5; index++) statuses.push((await call('POST', '/users/search', {})).status)
         expect(statuses).toEqual([200, 500, 500, 200, 200])
     })
 
     it('fails every call after the first when times is omitted', async () => {
-        const { call } = await start(config([{ status: 502, after: 1 }]))
+        const { call } = await plain(config([{ status: 502, after: 1 }]))
         expect([(await call('POST', '/users/search', {})).status, (await call('POST', '/users/search', {})).status, (await call('POST', '/users/search', {})).status]).toEqual([200, 502, 502])
     })
 
     it('rejects like the network', async () => {
-        const { mock } = await start(config([{ network: true, times: 1 }]))
+        const { mock } = await plain(config([{ network: true, times: 1 }]))
         await expect(mock.fetch('http://api.test/users/search', { method: 'POST', body: '{}' })).rejects.toThrow(TypeError)
         expect((await mock.fetch('http://api.test/users/search', { method: 'POST', body: '{}' })).status).toBe(200)
     })
@@ -390,7 +446,7 @@ describe('failure injection', () => {
     it('adds latency without failing', async () => {
         vi.useFakeTimers()
         try {
-            const { mock } = await start(config([{ delay: 500 }]))
+            const { mock } = await plain(config([{ delay: 500 }]))
             let done = false
             const pending = mock.fetch('http://api.test/users/search', { method: 'POST', body: '{}' }).then(response => {
                 done = true
@@ -406,7 +462,7 @@ describe('failure injection', () => {
     })
 
     it('uses the first rule that fires', async () => {
-        const { call } = await start(config([{ path: '/users/search', status: 500, times: 1 }, { status: 503 }]))
+        const { call } = await plain(config([{ path: '/users/search', status: 500, times: 1 }, { status: 503 }]))
         expect((await call('POST', '/users/search', {})).status).toBe(500)
         expect((await call('POST', '/users/search', {})).status).toBe(503)
     })
@@ -427,7 +483,7 @@ describe('failure injection', () => {
 describe('like backslash', () => {
     const seed = { users: [{ id: 1, name: '100%' }, { id: 2, name: '100x' }, { id: 3, name: '100\\z' }] }
     const likeNames = async (likeEscape: boolean | undefined, pattern: string): Promise<string[]> =>
-        (await start({ seed, likeEscape })).names({ filters: [filter('name', 'like', pattern)] })
+        (await plain({ seed, likeEscape })).names({ filters: [filter('name', 'like', pattern)] })
 
     it('escapes a wildcard by default', async () => {
         expect(await likeNames(undefined, '100\\%')).toEqual(['100%'])
@@ -439,7 +495,7 @@ describe('like backslash', () => {
     })
 
     it('applies to text search too', async () => {
-        const { names } = await start({ seed, likeEscape: false })
+        const { names } = await plain({ seed, likeEscape: false })
         expect(await names({ text: { value: '0\\' } })).toEqual(['100\\z'])
     })
 })
@@ -459,7 +515,7 @@ describe('maxNestingDepth', () => {
     })
 
     it('allows deeper groups up to the configured depth', async () => {
-        const { search } = await start({ seed, maxNestingDepth: 3 })
+        const { search } = await plain({ seed, maxNestingDepth: 3 })
         expect((await search({ filters: group(3) })).status).toBe(200)
         expect((await search({ filters: group(4) })).status).toBe(422)
     })

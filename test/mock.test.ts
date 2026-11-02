@@ -166,7 +166,7 @@ describe('createMock', () => {
 
     it('paginates search results', async () => {
         const seed = { users: Array.from({ length: 5 }, (_, index) => ({ id: index + 1 })) }
-        const mock = await createMock({ ...base, limits: [2], seed })
+        const mock = await createMock({ ...base, seed })
         const response = await mock.fetch('http://api.test/users/search', {
             method: 'POST',
             body: JSON.stringify({ page: 2, limit: 2 }),
