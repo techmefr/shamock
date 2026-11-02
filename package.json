@@ -36,6 +36,21 @@
             "import": "./dist/index.mjs",
             "default": "./dist/index.mjs"
         },
+        "./core": {
+            "types": "./dist/core.d.mts",
+            "import": "./dist/core.mjs",
+            "default": "./dist/core.mjs"
+        },
+        "./lomkit": {
+            "types": "./dist/lomkit.d.mts",
+            "import": "./dist/lomkit.mjs",
+            "default": "./dist/lomkit.mjs"
+        },
+        "./rest": {
+            "types": "./dist/rest.d.mts",
+            "import": "./dist/rest.mjs",
+            "default": "./dist/rest.mjs"
+        },
         "./enabled": {
             "types": "./dist/enabled.d.mts",
             "import": "./dist/enabled.mjs",
