@@ -11,6 +11,9 @@ const post = (mock: { fetch: FetchLike }, path: string, body: unknown = {}): Pro
 const rows = async (response: Response): Promise<Record<string, unknown>[]> =>
     ((await response.json()) as { data: Record<string, unknown>[] }).data
 
+const createdIds = async (response: Response): Promise<unknown[]> =>
+    ((await response.json()) as { created: unknown[] }).created
+
 afterEach(() => {
     vi.useRealTimers()
 })
@@ -74,25 +77,25 @@ describe('ids', () => {
 
     it('auto increment skips ids that already exist', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 'x' }, { id: '2' }] } })
-        expect((await rows(await create(mock, {})))[0]?.['id']).toBe('3')
-        expect((await rows(await create(mock, {})))[0]?.['id']).toBe('4')
+        expect((await createdIds(await create(mock, {})))[0]).toBe('3')
+        expect((await createdIds(await create(mock, {})))[0]).toBe('4')
         expect(await rows(await post(mock, 'users/search'))).toHaveLength(4)
     })
 
     it('auto increment fills the gap before an explicit id only when free', async () => {
         const mock = await createMock({ ...base, seed: { users: [] } })
         await create(mock, { id: 2 })
-        expect((await rows(await create(mock, {})))[0]?.['id']).toBe('3')
+        expect((await createdIds(await create(mock, {})))[0]).toBe('3')
     })
 
     it('ignores unsafe numeric ids for the counter', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 10 }, { id: 1e21 }] } })
-        expect((await rows(await create(mock, {})))[0]?.['id']).toBe(11)
+        expect((await createdIds(await create(mock, {})))[0]).toBe(11)
     })
 
     it('ignores unsafe numeric ids for the counter with string ids', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: '10' }, { id: 1e21 }] } })
-        expect((await rows(await create(mock, {})))[0]?.['id']).toBe('11')
+        expect((await createdIds(await create(mock, {})))[0]).toBe('11')
     })
 
     it('fails clearly when no integer id is left', async () => {
@@ -266,7 +269,8 @@ describe('routing and behavior', () => {
         const response = await post(mock, 'users/mutate', {
             mutate: [{ operation: 'update', key: 1, attributes: { age: 31, id: 'hack' } }],
         })
-        expect(await rows(response)).toEqual([{ id: 1, name: 'Ann', age: 31 }])
+        expect(await response.json()).toEqual({ created: [], updated: [1] })
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1, name: 'Ann', age: 31 }])
     })
 
     it('works with a baseUrl that has a path', async () => {

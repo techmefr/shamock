@@ -91,7 +91,7 @@ answered from the seed, every other request goes to the previous `fetch`.
 | `MockConfig`, `MockSeed`, `FetchLike`, `Mock`, `InstalledMock`, `MockableResource` | Types. |
 
 Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
-and `DELETE /<resource>`. `mutate` supports create and update only. Failures
+and `DELETE /<resource>`. `search` answers the lomkit paginator (`data` plus `current_page`, `last_page`, `per_page`, `total`, `from`, `to` at the root, `meta: []`, 50 rows per page by default). `mutate` supports create and update only and answers `{ created: [ids], updated: [ids] }`. Failures
 return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 
 ### Behavior
@@ -100,6 +100,7 @@ return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 - With `resources[name]`, created and updated records are validated: `422` with `errors: { field: [messages] }`.
 - Updating an unknown id returns `404`. Deleting one succeeds.
 - Search accepts `text: { value }` (case-insensitive substring on string values). `like` treats `` as an escape for `%`, `_` and ``. An unknown operator returns `422`.
+- To simulate a 5xx or a network failure, wrap `mock.fetch`: there is no failure option in the config.
 - `mock.fetch` forwards foreign URLs to the `fetch` captured at `createMock`.
 
 Full details in the [documentation](https://techmefr.github.io/shamock/).

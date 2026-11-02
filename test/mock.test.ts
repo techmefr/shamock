@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { createMock, installMock } from '../src/mock.ts'
-import type { InstalledMock } from '../src/mock.ts'
+import type { FetchLike, InstalledMock } from '../src/mock.ts'
 
 const installed: InstalledMock[] = []
 
@@ -41,11 +41,13 @@ describe('installMock serving', () => {
         const created = await send('POST', 'http://api.test/users/mutate', {
             mutate: [{ operation: 'create', attributes: { id: 3, name: 'Cleo' } }],
         })
-        expect(((await created.json()) as { data: unknown[] }).data[0]).toMatchObject({ name: 'Cleo' })
+        expect(await created.json()).toEqual({ created: [3], updated: [] })
 
         expect((await send('DELETE', 'http://api.test/users', { resources: ['1'] })).ok).toBe(true)
         const after = await send('POST', 'http://api.test/users/search', {})
-        expect(((await after.json()) as { data: { id: number }[] }).data.map(user => user.id)).toEqual([2, 3])
+        const afterData = ((await after.json()) as { data: { id: number; name?: string }[] }).data
+        expect(afterData.map(user => user.id)).toEqual([2, 3])
+        expect(afterData[1]).toMatchObject({ name: 'Cleo' })
     })
 
     it('returns 422 on an invalid body', async () => {
@@ -67,11 +69,13 @@ describe('installMock serving', () => {
         expect(response.status).toBe(200)
         expect(text).not.toContain('__proto__')
         expect(text).not.toContain('polluted')
-        expect(JSON.parse(text)).toEqual({ data: [{ id: '1', name: 'x' }] })
+        expect(JSON.parse(text)).toEqual({ created: ['1'], updated: [] })
         expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
         expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
         const list = await send('POST', 'http://api.test/users/search', {})
-        expect(await list.text()).not.toContain('polluted')
+        const listText = await list.text()
+        expect(listText).not.toContain('polluted')
+        expect((JSON.parse(listText) as { data: unknown[] }).data).toEqual([{ id: '1', name: 'x' }])
     })
 
     it('validates the seed through resources', async () => {
@@ -140,15 +144,15 @@ describe('createMock', () => {
 
     it('mutate creates with auto ids then updates by key', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1, name: 'Ann' }] } })
-        const post = async (path: string, body: unknown): Promise<{ data: Record<string, unknown>[] }> => {
+        const post = async (path: string, body: unknown): Promise<any> => {
             const response = await mock.fetch(`http://api.test/users/${path}`, { method: 'POST', body: JSON.stringify(body) })
-            return (await response.json()) as { data: Record<string, unknown>[] }
+            return response.json()
         }
         const created = await post('mutate', { mutate: [{ operation: 'create', attributes: { name: 'Bob' } }] })
-        expect(created.data[0]).toEqual({ id: 2, name: 'Bob' })
+        expect(created).toEqual({ created: [2], updated: [] })
         const updated = await post('mutate', { mutate: [{ operation: 'update', key: 2, attributes: { name: 'Bobby' } }] })
-        expect(updated.data[0]).toEqual({ id: 2, name: 'Bobby' })
-        expect((await post('search', {})).data).toHaveLength(2)
+        expect(updated).toEqual({ created: [], updated: [2] })
+        expect((await post('search', {})).data).toEqual([{ id: 1, name: 'Ann' }, { id: 2, name: 'Bobby' }])
     })
 
     it('deletes by id and returns 404 for unknown resources', async () => {
@@ -167,8 +171,27 @@ describe('createMock', () => {
             method: 'POST',
             body: JSON.stringify({ page: 2, limit: 2 }),
         })
-        const result = (await response.json()) as { data: { id: number }[]; meta?: { total: number } }
+        const result = (await response.json()) as { data: { id: number }[]; total: number; current_page: number }
         expect(result.data.map(user => user.id)).toEqual([3, 4])
-        expect(result.meta?.total).toBe(5)
+        expect(result.total).toBe(5)
+        expect(result.current_page).toBe(2)
+    })
+})
+
+describe('failure injection by wrapping fetch', () => {
+    it('lets a wrapper answer a 5xx or fail like the network without touching the mock', async () => {
+        const mock = await createMock({ ...base, seed: { users: [{ id: 1 }] } })
+        let mode: 'ok' | 'unavailable' | 'network' = 'unavailable'
+        const wrapped: FetchLike = (input, init) => {
+            if (mode === 'unavailable') return Promise.resolve(new Response('{}', { status: 503 }))
+            if (mode === 'network') return Promise.reject(new TypeError('fetch failed'))
+            return mock.fetch(input, init)
+        }
+        const search = (): Promise<Response> => wrapped('http://api.test/users/search', { method: 'POST', body: '{}' })
+        expect((await search()).status).toBe(503)
+        mode = 'network'
+        await expect(search()).rejects.toThrow('fetch failed')
+        mode = 'ok'
+        expect((await search()).status).toBe(200)
     })
 })

@@ -11,6 +11,9 @@ const post = (mock: { fetch: FetchLike }, path: string, body: unknown = {}): Pro
 const rows = async (response: Response): Promise<Record<string, unknown>[]> =>
     ((await response.json()) as { data: Record<string, unknown>[] }).data
 
+const createdIds = async (response: Response): Promise<unknown[]> =>
+    ((await response.json()) as { created: unknown[] }).created
+
 const create = (mock: { fetch: FetchLike }, attributes: unknown): Promise<Response> =>
     post(mock, 'users/mutate', { mutate: [{ operation: 'create', attributes }] })
 
@@ -21,17 +24,20 @@ afterEach(() => {
 describe('generated ids follow the seed', () => {
     it('numeric when every seed id is numeric', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }, { id: 20 }] } })
-        expect(await rows(await create(mock, { name: 'A' }))).toEqual([{ id: 21, name: 'A' }])
+        expect(await createdIds(await create(mock, { name: 'A' }))).toEqual([21])
+        expect(await rows(await post(mock, 'users/search'))).toContainEqual({ id: 21, name: 'A' })
     })
 
     it('string when the seed ids are strings', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 'a' }] } })
-        expect(await rows(await create(mock, { name: 'A' }))).toEqual([{ id: '1', name: 'A' }])
+        expect(await createdIds(await create(mock, { name: 'A' }))).toEqual(['1'])
+        expect(await rows(await post(mock, 'users/search'))).toContainEqual({ id: '1', name: 'A' })
     })
 
     it('string when the seed is empty', async () => {
         const mock = await createMock({ ...base, seed: { users: [] } })
-        expect(await rows(await create(mock, {}))).toEqual([{ id: '1' }])
+        expect(await createdIds(await create(mock, {}))).toEqual(['1'])
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: '1' }])
     })
 })
 
@@ -52,7 +58,8 @@ describe('schema validation of mutations', () => {
 
     it('accepts a valid create with a numeric id', async () => {
         const mock = await createMock({ ...base, seed, resources })
-        expect(await rows(await create(mock, { name: 'Bob' }))).toEqual([{ id: 2, name: 'Bob' }])
+        expect(await createdIds(await create(mock, { name: 'Bob' }))).toEqual([2])
+        expect(await rows(await post(mock, 'users/search'))).toContainEqual({ id: 2, name: 'Bob' })
     })
 
     it('validates the merged record of an update', async () => {
@@ -60,7 +67,8 @@ describe('schema validation of mutations', () => {
         const bad = await post(mock, 'users/mutate', { mutate: [{ operation: 'update', key: 1, attributes: { name: 'B' } }] })
         expect(bad.status).toBe(422)
         const good = await post(mock, 'users/mutate', { mutate: [{ operation: 'update', key: 1, attributes: { age: 3 } }] })
-        expect(await rows(good)).toEqual([{ id: 1, name: 'Ann', age: 3 }])
+        expect(await good.json()).toEqual({ created: [], updated: [1] })
+        expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1, name: 'Ann', age: 3 }])
     })
 
     it('is atomic: one invalid record leaves the store unchanged', async () => {
@@ -73,7 +81,8 @@ describe('schema validation of mutations', () => {
         })
         expect(response.status).toBe(422)
         expect(await rows(await post(mock, 'users/search'))).toEqual(seed.users)
-        expect(await rows(await create(mock, { name: 'Dan' }))).toEqual([{ id: 2, name: 'Dan' }])
+        expect(await createdIds(await create(mock, { name: 'Dan' }))).toEqual([2])
+        expect(await rows(await post(mock, 'users/search'))).toContainEqual({ id: 2, name: 'Dan' })
     })
 
     it('does not validate resources without a schema', async () => {
@@ -85,7 +94,7 @@ describe('schema validation of mutations', () => {
     it('serializes concurrent writes', async () => {
         const mock = await createMock({ ...base, seed, resources })
         const responses = await Promise.all([create(mock, { name: 'Bob' }), create(mock, { name: 'Cat' })])
-        const ids = (await Promise.all(responses.map(rows))).map(list => list[0]?.['id'])
+        const ids = (await Promise.all(responses.map(createdIds))).map(list => list[0])
         expect(ids).toEqual([2, 3])
     })
 })

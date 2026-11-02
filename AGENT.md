@@ -17,7 +17,8 @@ Schema-driven mock engine, zero dependencies.
 ## Rules
 - Never import `nexdk` or `beepr`. shamock only knows a `{ schema }` shape.
 - No runtime dependency. `StandardSchemaV1` is a local copy of the contract; never add `zod` to type it.
-- Routes under an absolute `baseUrl`: `POST /<r>/search`, `POST /<r>/mutate`, `DELETE /<r>`. `mutate` is create and update only (422 otherwise). Writes are atomic.
+- Routes under an absolute `baseUrl`: `POST /<r>/search`, `POST /<r>/mutate`, `DELETE /<r>`. `mutate` is create and update only (422 otherwise) and answers `{ created, updated }` (ids), like lomkit. `search` answers the paginator at the root (`data`, `current_page`, `last_page`, `per_page`, `total`, `from`, `to`, `meta: []`), 50 rows per page by default. Writes are atomic.
+- Failure injection is not a config option: callers wrap `mock.fetch`.
 - Errors are `{ message, errors }` with 404, 413 or 422. Keep the limits: body 1 MB in bytes, 1000 mutations or ids, 100 filters, like pattern 256 characters, 1000 values per array, 10 000 rows per resource, nesting 10.
 - Requests outside `baseUrl` go to the previous `fetch`. XHR is not intercepted.
 - Docs live in `docs/` (Starlight). Keep README, docs and this file in sync with `src/`.

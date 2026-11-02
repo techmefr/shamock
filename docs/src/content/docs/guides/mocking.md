@@ -91,7 +91,7 @@ await fetch('https://api.example.com/products/search', {
 })
 ```
 
-The `search` wrapper is optional: a flat body works too. The response is `{ data }`, plus `meta` (`current_page`, `last_page`, `per_page`, `total`) when `limit` is set.
+The `search` wrapper is optional: a flat body works too. The response is the Laravel paginator shape of lomkit: `data` and, at the root, `current_page`, `last_page`, `per_page`, `total`, `from` and `to` (`null` on an empty page), with `meta: []`. Without `limit`, a page holds 50 rows, like lomkit.
 
 - Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `like`, `not like`, `in`, `not in`. Any other operator returns `422` `Invalid search`.
 - `like` is case-insensitive, `%` matches any run, `_` one character. A backslash escapes `%`, `_` and ``, so `Jo_el` matches the literal `Jo_el`.
@@ -113,7 +113,7 @@ await fetch('https://api.example.com/products/mutate', {
 })
 ```
 
-The response is `{ data }` with the written records. Only `create` and `update` exist: any other `operation` returns `422`. A flat record without `operation` is an update when it has an `id`, otherwise a create.
+The response is `{ "created": [ids], "updated": [ids] }`, like lomkit: the ids of the records written, in request order. Read the records back with `search`. Only `create` and `update` exist: any other `operation` returns `422`. A flat record without `operation` is an update when it has an `id`, otherwise a create.
 
 An `update` of an unknown id returns `404` `{ "message": "Not found", "errors": {} }`.
 
@@ -162,6 +162,18 @@ Errors are `{ "message": "...", "errors": {} }`.
 | Filter nesting | 10 |
 
 ## Timing and abort
+
+Injecting a failure: `mock.fetch` is a plain function, so wrap it to answer a 5xx or to fail like the network. There is no failure option in the config.
+
+```ts
+const mock = await createMock({ baseUrl: 'https://api.example.com', timing: 0, seed })
+const flaky: typeof fetch = (input, init) => {
+  if (shouldFail()) return Promise.resolve(new Response('{}', { status: 503 }))
+  return mock.fetch(input, init)
+}
+```
+
+Throw (or return a rejected promise) in the wrapper for a network failure. Pass the wrapper to the client, for example the `fetch` option of a nexdk driver.
 
 Each request waits `timing` ms before it is served. Passing a `signal` to `fetch` aborts the wait and rejects with the signal's reason. Aborted writes are not applied.
 

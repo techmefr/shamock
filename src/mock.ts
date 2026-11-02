@@ -32,6 +32,11 @@ export interface InstalledMock extends Mock {
 
 const MAX_TIMING = 60_000
 
+interface AppliedMutation {
+    kind: 'created' | 'updated'
+    record: Record<string, unknown>
+}
+
 const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
@@ -157,19 +162,22 @@ export async function createMock(config: MockConfig): Promise<Mock> {
             const mutations = mutationsOf(await requiredBodyOf(request)).map(toMutation)
             request.signal.throwIfAborted()
             const resource = Object.hasOwn(resources, name) ? resources[name] : undefined
-            const apply = (): Record<string, unknown>[] =>
+            const apply = (): AppliedMutation[] =>
                 mutations.map(mutation => {
-                    if (mutation.kind === 'create') return store.insert(mutation.attributes)
+                    if (mutation.kind === 'create') return { kind: 'created', record: store.insert(mutation.attributes) }
                     const updated = store.update(mutation.key, mutation.attributes)
                     if (updated === null) throw new HttpError(404, 'Not found')
-                    return updated
+                    return { kind: 'updated', record: updated }
                 })
             return exclusive(async () => {
                 if (resource !== undefined) {
-                    for (const record of store.preview(apply)) await validateRecord(resource, record)
+                    for (const { record } of store.preview(apply)) await validateRecord(resource, record)
                 }
                 request.signal.throwIfAborted()
-                return json({ data: store.transaction(apply) })
+                const applied = store.transaction(apply)
+                const idsOf = (kind: AppliedMutation['kind']): unknown[] =>
+                    applied.filter(entry => entry.kind === kind).map(entry => entry.record['id'])
+                return json({ created: idsOf('created'), updated: idsOf('updated') })
             })
         }
 

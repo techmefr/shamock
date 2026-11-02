@@ -5,6 +5,7 @@ const MAX_NESTING = 10
 const MAX_FILTERS = 100
 const MAX_LIST_VALUES = 1000
 const MAX_PATTERN_LENGTH = 256
+const DEFAULT_LIMIT = 50
 
 export type SearchRecord = Record<string, unknown>
 
@@ -21,16 +22,15 @@ export interface SearchSort {
     direction?: string
 }
 
-export interface SearchMeta {
+export interface SearchResult {
+    data: SearchRecord[]
     current_page: number
     last_page: number
     per_page: number
     total: number
-}
-
-export interface SearchResult {
-    data: SearchRecord[]
-    meta?: SearchMeta
+    from: number | null
+    to: number | null
+    meta: []
 }
 
 interface LikeToken {
@@ -238,16 +238,17 @@ export function applySearch(records: SearchRecord[], search: Record<string, unkn
     )
     const rawLimit = own(search, 'limit')
     const rawPage = own(search, 'page')
-    const limit = typeof rawLimit === 'number' && rawLimit > 0 ? Math.floor(rawLimit) : undefined
-    if (limit === undefined) return { data: filtered }
+    const limit = typeof rawLimit === 'number' && rawLimit > 0 ? Math.floor(rawLimit) : DEFAULT_LIMIT
     const page = typeof rawPage === 'number' && rawPage > 0 ? Math.floor(rawPage) : 1
+    const data = filtered.slice((page - 1) * limit, page * limit)
     return {
-        data: filtered.slice((page - 1) * limit, page * limit),
-        meta: {
-            current_page: page,
-            last_page: Math.max(1, Math.ceil(filtered.length / limit)),
-            per_page: limit,
-            total: filtered.length,
-        },
+        data,
+        current_page: page,
+        last_page: Math.max(1, Math.ceil(filtered.length / limit)),
+        per_page: limit,
+        total: filtered.length,
+        from: data.length === 0 ? null : (page - 1) * limit + 1,
+        to: data.length === 0 ? null : (page - 1) * limit + data.length,
+        meta: [],
     }
 }

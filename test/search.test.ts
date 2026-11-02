@@ -16,11 +16,15 @@ describe('searchOf', () => {
 })
 
 describe('applySearch', () => {
-    it('returns everything without meta when there is no limit', () => {
+    it('returns one page of at most 50 rows with root pagination when there is no limit', () => {
         const result = applySearch(users, {})
 
         expect(result.data).toHaveLength(3)
-        expect(result.meta).toBeUndefined()
+        expect(result).toMatchObject({ current_page: 1, last_page: 1, per_page: 50, total: 3, from: 1, to: 3, meta: [] })
+        const many = Array.from({ length: 120 }, (_, index) => ({ id: index + 1 }))
+        const capped = applySearch(many, {})
+        expect(capped.data).toHaveLength(50)
+        expect(capped).toMatchObject({ last_page: 3, total: 120, from: 1, to: 50 })
     })
 
     it.each([
@@ -56,14 +60,14 @@ describe('applySearch', () => {
         const result = applySearch(users, { limit: 2, page: 2 })
 
         expect(result.data.map(user => user.id)).toEqual([3])
-        expect(result.meta).toEqual({ current_page: 2, last_page: 2, per_page: 2, total: 3 })
+        expect(result).toMatchObject({ current_page: 2, last_page: 2, per_page: 2, total: 3, from: 3, to: 3, meta: [] })
     })
 
     it('reports a single empty page when nothing matches', () => {
         const result = applySearch(users, { filters: [{ field: 'id', operator: '=', value: 99 }], limit: 5 })
 
         expect(result.data).toEqual([])
-        expect(result.meta).toEqual({ current_page: 1, last_page: 1, per_page: 5, total: 0 })
+        expect(result).toMatchObject({ current_page: 1, last_page: 1, per_page: 5, total: 0, from: null, to: null, meta: [] })
     })
 
     it('rejects unknown operators with 422 and escapes regex characters in like', () => {

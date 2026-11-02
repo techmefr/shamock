@@ -15,6 +15,9 @@ const remove = (mock: { fetch: FetchLike }, body: unknown): Promise<Response> =>
 const rows = async (response: Response): Promise<Record<string, unknown>[]> =>
     ((await response.json()) as { data: Record<string, unknown>[] }).data
 
+const createdIds = async (response: Response): Promise<unknown[]> =>
+    ((await response.json()) as { created: unknown[] }).created
+
 const create = (attributes: unknown): unknown => ({ operation: 'create', attributes })
 
 describe('auto increment near the safe integer limit', () => {
@@ -56,7 +59,7 @@ describe('atomicity', () => {
     it('keeps the auto increment counter after a failed batch', async () => {
         const mock = await createMock({ ...base, seed: { users: [] } })
         await post(mock, 'users/mutate', { mutate: [create({}), create({}), create({ id: 'x' }), create({ id: 'x' })] })
-        expect((await rows(await post(mock, 'users/mutate', { mutate: [create({})] })))[0]?.['id']).toBe('1')
+        expect((await createdIds(await post(mock, 'users/mutate', { mutate: [create({})] })))[0]).toBe('1')
     })
 
     it('removes nothing when a delete contains an invalid id', async () => {
@@ -87,7 +90,8 @@ describe('mutate payloads', () => {
         const mock = await createMock({ ...base, seed: { users: [] } })
         const body = '{"mutate":[{"operation":"create","attributes":{"__proto__":{"polluted":1},"constructor":{"x":1},"prototype":2}}]}'
         const response = await mock.fetch('http://api.test/users/mutate', { method: 'POST', body })
-        const [record] = await rows(response)
+        expect(await createdIds(response)).toEqual(['1'])
+        const [record] = await rows(await post(mock, 'users/search'))
         expect(record).toEqual({ id: '1', constructor: { x: 1 }, prototype: 2 })
         expect(Object.getPrototypeOf(record)).toBe(Object.prototype)
         expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
@@ -119,7 +123,7 @@ describe('ids keep their type', () => {
     it('updates and deletes a numeric id by string or number key', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1, a: 0 }, { id: 2 }] } })
         const update = await post(mock, 'users/mutate', { mutate: [{ operation: 'update', key: '1', attributes: { a: 1 } }] })
-        expect(await rows(update)).toEqual([{ id: 1, a: 1 }])
+        expect(await update.json()).toEqual({ created: [], updated: [1] })
         await remove(mock, { resources: ['2'] })
         expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1, a: 1 }])
     })
@@ -154,7 +158,7 @@ describe('body limits', () => {
         const mock = await createMock({ ...base, seed })
         const response = await post(mock, 'users/mutate', { mutate: [create({})] })
         expect(response.status).toBe(422)
-        expect(await rows(await post(mock, 'users/search'))).toHaveLength(MAX_ROWS)
+        expect(await rows(await post(mock, 'users/search', { limit: MAX_ROWS }))).toHaveLength(MAX_ROWS)
     })
 
     it('rejects a seed above the maximum number of records', async () => {
@@ -257,7 +261,7 @@ describe('restore with a third-party wrapper on top', () => {
             return underneath(input, init)
         }) as typeof fetch
         globalThis.fetch = wrapper
-        expect(await (await fetch('http://api.test/users/search', { method: 'POST' })).json()).toEqual({ data: [{ id: 1 }] })
+        expect(((await (await fetch('http://api.test/users/search', { method: 'POST' })).json()) as { data: unknown[] }).data).toEqual([{ id: 1 }])
         mock.restore()
         expect(globalThis.fetch).toBe(wrapper)
         expect(await (await fetch('http://api.test/users/search', { method: 'POST' })).text()).toBe('real')
