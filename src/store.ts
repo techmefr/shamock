@@ -16,11 +16,13 @@ export interface Store {
     update: (key: unknown, attributes: Record<string, unknown>) => SearchRecord | null
     remove: (key: unknown) => void
     transaction: <T>(work: () => T) => T
+    preview: <T>(work: () => T) => T
 }
 
 export function createStore(items: Record<string, unknown>[]): Store {
     let rows = new Map<string, SearchRecord>()
     let nextId = 1
+    const numericIds = items.length > 0 && items.every(item => typeof item['id'] === 'number')
 
     const insert = (attributes: unknown): SearchRecord => {
         if (!isRecord(attributes)) throw new HttpError(422, 'Invalid record: expected an object')
@@ -32,7 +34,7 @@ export function createStore(items: Record<string, unknown>[]): Store {
                 if (!Number.isSafeInteger(nextId + 1)) throw new HttpError(422, 'No id available')
                 nextId++
             }
-            id = String(nextId)
+            id = numericIds ? nextId : String(nextId)
         } else {
             id = toId(given)
             if (rows.has(String(id))) throw new HttpError(422, `Record "${String(id)}" already exists`)
@@ -42,6 +44,18 @@ export function createStore(items: Record<string, unknown>[]): Store {
         const record = { ...attributes, id }
         rows.set(String(id), record)
         return { ...record }
+    }
+
+    const transaction = <T>(work: () => T): T => {
+        const savedRows = new Map(rows)
+        const savedNextId = nextId
+        try {
+            return work()
+        } catch (error) {
+            rows = savedRows
+            nextId = savedNextId
+            throw error
+        }
     }
 
     items.forEach(item => insert(structuredClone(item)))
@@ -59,15 +73,15 @@ export function createStore(items: Record<string, unknown>[]): Store {
         remove(key) {
             rows.delete(String(toId(key)))
         },
-        transaction(work) {
+        transaction,
+        preview(work) {
             const savedRows = new Map(rows)
             const savedNextId = nextId
             try {
                 return work()
-            } catch (error) {
+            } finally {
                 rows = savedRows
                 nextId = savedNextId
-                throw error
             }
         },
     }

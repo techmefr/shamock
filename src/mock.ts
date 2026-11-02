@@ -4,7 +4,7 @@ import type { FetchLike } from './install.ts'
 import { idsToRemove, mutationsOf, parseJsonBody, readBody, toMutation } from './request-body.ts'
 import { applySearch, searchOf } from './search.ts'
 import { createStore } from './store.ts'
-import { parseMockList } from './parse-mock.ts'
+import { MockValidationError, parseMock, parseMockList } from './parse-mock.ts'
 import type { MockableResource } from './parse-mock.ts'
 
 export type { FetchLike }
@@ -34,6 +34,25 @@ const MAX_TIMING = 60_000
 
 const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+const invalidData = (error: MockValidationError): HttpError => {
+    const errors: Record<string, string[]> = {}
+    for (const issue of error.issues) {
+        const path = (issue.path ?? []).map(segment => String(typeof segment === 'object' ? segment.key : segment)).join('.')
+        const key = path === '' ? 'record' : path
+        errors[key] = [...(errors[key] ?? []), issue.message]
+    }
+    return new HttpError(422, 'The given data was invalid.', errors)
+}
+
+async function validateRecord(resource: MockableResource, record: Record<string, unknown>): Promise<void> {
+    try {
+        await parseMock(resource, record)
+    } catch (error) {
+        if (error instanceof MockValidationError) throw invalidData(error)
+        throw error
+    }
+}
 
 const notFound = (): Response => json({ message: 'Not found', errors: {} }, 404)
 
@@ -106,6 +125,15 @@ export async function createMock(config: MockConfig): Promise<Mock> {
     const seed = await validatedSeed(config)
     const stores = new Map([...seed].map(([name, items]) => [name, createStore(items)]))
     const base = new URL(config.baseUrl)
+    const origin = globalThis.fetch
+    const resources = config.resources ?? {}
+    let writes: Promise<unknown> = Promise.resolve()
+
+    const exclusive = <T>(task: () => Promise<T>): Promise<T> => {
+        const run = writes.then(task)
+        writes = run.catch(() => undefined)
+        return run
+    }
     const basePath = base.pathname.replace(/\/+$/, '')
 
     const pathOf = (url: URL | undefined): string | undefined => {
@@ -116,7 +144,8 @@ export async function createMock(config: MockConfig): Promise<Mock> {
 
     const route = async (method: string, path: string, request: Request): Promise<Response> => {
         const [, rawName = '', rawAction, extra] = path.replace(/\/+$/, '').split('/')
-        const store = stores.get(decode(rawName))
+        const name = decode(rawName)
+        const store = stores.get(name)
         const action = rawAction === undefined ? undefined : decode(rawAction)
         if (store === undefined || extra !== undefined) return notFound()
 
@@ -127,21 +156,30 @@ export async function createMock(config: MockConfig): Promise<Mock> {
         if (method === 'POST' && action === 'mutate') {
             const mutations = mutationsOf(await requiredBodyOf(request)).map(toMutation)
             request.signal.throwIfAborted()
-            const data = store.transaction(() =>
-                mutations.map(mutation =>
-                    mutation.kind === 'create'
-                        ? store.insert(mutation.attributes)
-                        : store.update(mutation.key, mutation.attributes),
-                ),
-            )
-            return json({ data })
+            const resource = Object.hasOwn(resources, name) ? resources[name] : undefined
+            const apply = (): Record<string, unknown>[] =>
+                mutations.map(mutation => {
+                    if (mutation.kind === 'create') return store.insert(mutation.attributes)
+                    const updated = store.update(mutation.key, mutation.attributes)
+                    if (updated === null) throw new HttpError(404, 'Not found')
+                    return updated
+                })
+            return exclusive(async () => {
+                if (resource !== undefined) {
+                    for (const record of store.preview(apply)) await validateRecord(resource, record)
+                }
+                request.signal.throwIfAborted()
+                return json({ data: store.transaction(apply) })
+            })
         }
 
         if (method === 'DELETE' && action === undefined) {
             const ids = idsToRemove(await requiredBodyOf(request))
             request.signal.throwIfAborted()
-            store.transaction(() => ids.forEach(id => store.remove(id)))
-            return json({ success: true })
+            return exclusive(async () => {
+                store.transaction(() => ids.forEach(id => store.remove(id)))
+                return json({ success: true })
+            })
         }
 
         return notFound()
@@ -155,7 +193,7 @@ export async function createMock(config: MockConfig): Promise<Mock> {
             if (timing > 0) await wait(timing, request.signal)
             return await route(request.method.toUpperCase(), path, request)
         } catch (error) {
-            if (error instanceof HttpError) return json({ message: error.message, errors: {} }, error.status)
+            if (error instanceof HttpError) return json({ message: error.message, errors: error.errors }, error.status)
             throw error
         }
     }
@@ -172,7 +210,7 @@ export async function createMock(config: MockConfig): Promise<Mock> {
         return { handle, fetch, install, restore }
     }
 
-    return { handle, fetch: serve(() => globalThis.fetch), install }
+    return { handle, fetch: serve(() => origin), install }
 }
 
 export async function installMock(config: MockConfig): Promise<InstalledMock> {

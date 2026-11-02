@@ -145,9 +145,9 @@ describe('createMock', () => {
             return (await response.json()) as { data: Record<string, unknown>[] }
         }
         const created = await post('mutate', { mutate: [{ operation: 'create', attributes: { name: 'Bob' } }] })
-        expect(created.data[0]).toEqual({ id: '2', name: 'Bob' })
+        expect(created.data[0]).toEqual({ id: 2, name: 'Bob' })
         const updated = await post('mutate', { mutate: [{ operation: 'update', key: 2, attributes: { name: 'Bobby' } }] })
-        expect(updated.data[0]).toEqual({ id: '2', name: 'Bobby' })
+        expect(updated.data[0]).toEqual({ id: 2, name: 'Bobby' })
         expect((await post('search', {})).data).toHaveLength(2)
     })
 

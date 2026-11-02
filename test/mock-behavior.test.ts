@@ -87,6 +87,11 @@ describe('ids', () => {
 
     it('ignores unsafe numeric ids for the counter', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 10 }, { id: 1e21 }] } })
+        expect((await rows(await create(mock, {})))[0]?.['id']).toBe(11)
+    })
+
+    it('ignores unsafe numeric ids for the counter with string ids', async () => {
+        const mock = await createMock({ ...base, seed: { users: [{ id: '10' }, { id: 1e21 }] } })
         expect((await rows(await create(mock, {})))[0]?.['id']).toBe('11')
     })
 
@@ -248,10 +253,11 @@ describe('routing and behavior', () => {
         expect(await rows(await mock.fetch('http://api.test/users/search', { method: 'POST' }))).toEqual([{ id: 1 }])
     })
 
-    it('updating an unknown key returns null and creates nothing', async () => {
+    it('updating an unknown key answers 404 and creates nothing', async () => {
         const mock = await createMock({ ...base, seed: { users: [{ id: 1 }] } })
         const response = await post(mock, 'users/mutate', { mutate: [{ operation: 'update', key: 99, attributes: { a: 1 } }] })
-        expect(((await response.json()) as { data: unknown[] }).data).toEqual([null])
+        expect(response.status).toBe(404)
+        expect(await response.json()).toEqual({ message: 'Not found', errors: {} })
         expect(await rows(await post(mock, 'users/search'))).toEqual([{ id: 1 }])
     })
 
