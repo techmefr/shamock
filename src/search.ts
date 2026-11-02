@@ -33,18 +33,37 @@ export interface SearchResult {
     meta?: SearchMeta
 }
 
+interface LikeToken {
+    character: string
+    wildcard: boolean
+}
+
+function likeTokens(pattern: string): LikeToken[] {
+    const tokens: LikeToken[] = []
+    for (let index = 0; index < pattern.length; index++) {
+        const character = pattern[index] as string
+        if (character === '\\' && index + 1 < pattern.length) {
+            tokens.push({ character: pattern[++index] as string, wildcard: false })
+        } else {
+            tokens.push({ character, wildcard: character === '%' || character === '_' })
+        }
+    }
+    return tokens
+}
+
 function likeMatch(value: string, pattern: string): boolean {
     const text = value.toLowerCase()
-    const glob = pattern.toLowerCase()
+    const glob = likeTokens(pattern.toLowerCase())
     let t = 0
     let p = 0
     let star = -1
     let mark = 0
     while (t < text.length) {
-        if (p < glob.length && glob[p] === '%') {
+        const token = glob[p]
+        if (token !== undefined && token.wildcard && token.character === '%') {
             star = p++
             mark = t
-        } else if (p < glob.length && (glob[p] === '_' || glob[p] === text[t])) {
+        } else if (token !== undefined && ((token.wildcard && token.character === '_') || (!token.wildcard && token.character === text[t]))) {
             p++
             t++
         } else if (star >= 0) {
@@ -54,7 +73,7 @@ function likeMatch(value: string, pattern: string): boolean {
             return false
         }
     }
-    while (p < glob.length && glob[p] === '%') p++
+    while (p < glob.length && glob[p]?.wildcard === true && glob[p]?.character === '%') p++
     return p === glob.length
 }
 
@@ -95,7 +114,7 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
         case 'not in':
             return Array.isArray(right) && !right.includes(left)
         default:
-            return true
+            return false
     }
 }
 
@@ -140,6 +159,8 @@ function sortRecords(records: SearchRecord[], sorts: SearchSort[]): SearchRecord
     })
 }
 
+const OPERATORS = new Set(['=', '!=', '>', '>=', '<', '<=', 'like', 'not like', 'in', 'not in'])
+
 const invalid = (what: string): HttpError => new HttpError(422, `Invalid search: ${what}`)
 
 function optionalString(item: Record<string, unknown>, key: string): string | undefined {
@@ -173,6 +194,7 @@ function filtersOf(value: unknown, budget = { left: MAX_FILTERS }, depth = 0): S
         if (--budget.left < 0) throw invalid(`filters are limited to ${MAX_FILTERS}`)
         const nested = own(item, 'nested')
         const operator = optionalString(item, 'operator')
+        if (operator !== undefined && !OPERATORS.has(operator)) throw invalid(`unknown operator "${operator}"`)
         return {
             field: optionalString(item, 'field'),
             operator,
@@ -196,10 +218,24 @@ export function searchOf(body: Record<string, unknown> | undefined): Record<stri
     return isRecord(nested) ? nested : body
 }
 
+function textOf(search: Record<string, unknown>): string | undefined {
+    const text = own(search, 'text')
+    if (!isRecord(text)) return undefined
+    const value = own(text, 'value')
+    return typeof value === 'string' && value !== '' ? value.toLowerCase() : undefined
+}
+
+const containsText = (record: SearchRecord, text: string): boolean =>
+    Object.values(record).some(value => typeof value === 'string' && value.toLowerCase().includes(text))
+
 export function applySearch(records: SearchRecord[], search: Record<string, unknown>): SearchResult {
     const filters = filtersOf(own(search, 'filters'))
     const sorts = sortsOf(own(search, 'sorts'))
-    const filtered = sortRecords(records.filter(record => matches(record, filters)), sorts)
+    const text = textOf(search)
+    const filtered = sortRecords(
+        records.filter(record => matches(record, filters) && (text === undefined || containsText(record, text))),
+        sorts,
+    )
     const rawLimit = own(search, 'limit')
     const rawPage = own(search, 'page')
     const limit = typeof rawLimit === 'number' && rawLimit > 0 ? Math.floor(rawLimit) : undefined

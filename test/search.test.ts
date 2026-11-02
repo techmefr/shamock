@@ -66,8 +66,10 @@ describe('applySearch', () => {
         expect(result.meta).toEqual({ current_page: 1, last_page: 1, per_page: 5, total: 0 })
     })
 
-    it('ignores unknown operators and escapes regex characters in like', () => {
-        expect(applySearch(users, { filters: [{ field: 'id', operator: '??', value: 1 }] }).data).toHaveLength(3)
+    it('rejects unknown operators with 422 and escapes regex characters in like', () => {
+        expect(() => applySearch(users, { filters: [{ field: 'id', operator: '??', value: 1 }] })).toThrow(
+            expect.objectContaining({ status: 422, message: 'Invalid search: unknown operator "??"' }),
+        )
         expect(applySearch([{ name: 'a.b' }, { name: 'axb' }], { filters: [{ field: 'name', operator: 'like', value: 'a.b' }] }).data).toEqual([{ name: 'a.b' }])
     })
 })
