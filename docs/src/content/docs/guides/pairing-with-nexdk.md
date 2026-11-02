@@ -24,7 +24,7 @@ async function getProducts(useMock = false) {
 
 ## Fake the network
 
-The mock answers the lomkit REST shape: `POST /<resource>/search`, `POST /<resource>/mutate` and `DELETE /<resource>`. Install it before the SDK sends requests, with the SDK's absolute base URL:
+The mock intercepts the call and answers with the lomkit REST shape: `POST /<resource>/search`, `POST /<resource>/mutate` and `DELETE /<resource>`. Install it before the SDK sends requests, with the SDK's absolute base URL:
 
 ```ts
 import { installMock } from 'shamock'

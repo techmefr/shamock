@@ -19,10 +19,11 @@
 
 **Real schemas. Ghost data.**
 
-Schema-driven mock engine. Validate fixtures against any
+shamock intercepts the real `fetch` call and, instead of letting it reach the
+backend, answers with the JSON you provide. On top of that interception, a small
+engine (seed, search, mutate, delete) lets the answers follow your data, and any
 [Standard Schema](https://standardschema.dev) validator (Zod, Valibot,
-ArkType...), and serve them from an in-process mock API that answers
-`fetch` calls. Zero dependencies.
+ArkType...) checks your fixtures. Zero dependencies.
 
 > **Keywords** — `mock` · `mocking` · `fixtures` · `mock-data` · `schema-validation` · `standard-schema` · `typescript` · `zod` · `valibot` · `arktype` · `offline` · `fallback` · `testing`
 
@@ -91,7 +92,7 @@ answered from the seed, every other request goes to the previous `fetch`.
 | `MockConfig`, `MockSeed`, `MockResource`, `MockRelation`, `FailureRule`, `FetchLike`, `Mock`, `InstalledMock`, `MockableResource` | Types. |
 
 Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
-and `DELETE /<resource>`. `search` answers the lomkit paginator (`data` plus `current_page`, `last_page`, `per_page`, `total`, `from`, `to` at the root, `meta: []`, 50 rows per page by default). `mutate` supports create and update only and answers `{ created: [ids], updated: [ids] }`. Failures
+and `DELETE /<resource>`. `search` answers a paginator (`data` plus `current_page`, `last_page`, `per_page`, `total`, `from`, `to` at the root, `meta: []`, 50 rows per page by default). `mutate` supports create and update only and answers `{ created: [ids], updated: [ids] }`. Failures
 return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 
 ### Configuration
@@ -105,9 +106,10 @@ return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 | `resources[name].limits` | Accepted `limit` values for this resource. |
 | `resources[name].searchable` | Fields read by `text` search. All string fields by default. |
 | `resources[name].relations` | `{ [relation]: { type: 'belongsTo' \| 'hasMany', resource, foreignKey } }`, read by `includes`. |
-| `limits` | Accepted `limit` values. Default `[10, 25, 50]`. |
-| `likeEscape` | `false` reads a backslash in `like` and `text` literally, as SQLite and Lomkit do. Default `true`: a backslash escapes `%`, `_` and itself. |
-| `maxNestingDepth` | Group levels allowed in `filters`, from `1` to `10`. Default `1`: a group cannot hold a group, like lomkit. |
+| `profile` | `'lomkit'` opts in to the strict compatibility profile, see Behavior. Omitted: the mock follows the JSON you give it. |
+| `limits` | Accepted `limit` values. Any positive `limit` by default, `[10, 25, 50]` with `profile: 'lomkit'`. |
+| `likeEscape` | `true`: a backslash escapes `%`, `_` and itself. `false` reads it literally. Default `true`, `false` with `profile: 'lomkit'`. |
+| `maxNestingDepth` | Group levels allowed in `filters`, from `1` to `10`. Default `10`, `1` with `profile: 'lomkit'`. |
 | `failures` | Fault injection rules, see below. |
 | `timing` | Delay in ms, `0` to `60000`. Default `300`. |
 
@@ -128,24 +130,45 @@ const mock = await createMock({
 
 ### Behavior
 
-The mock follows the answers measured on a real Laravel + `lomkit/laravel-rest-api` backend on SQLite.
+The mock answers from the JSON you provide. Its default behavior is simple and data-driven.
 
-- `and` binds tighter than `or`, as in SQL: `a and b or c and d` is `(a and b) or (c and d)`. A group (`nested`) counts as one condition and cannot hold another group (`422`) unless `maxNestingDepth` is raised.
-- Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Refused with `422`: `aggregates`, `scopes`, `instructions`, `gates` (empty arrays are accepted), any unknown search key, any unknown filter key, an unknown operator, an unknown relation, a `like` filter combined with `text`, an empty `in` list.
-- `limit` must be one of `limits` (default `[10, 25, 50]`, per resource with `resources[name].limits`), otherwise `422` with `errors: { 'search.limit': [...] }`. Without `limit`, a page holds 50 rows.
+- `and` binds tighter than `or`, as in SQL: `a and b or c and d` is `(a and b) or (c and d)`. A group (`nested`) counts as one condition.
+- Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Unknown keys are ignored. An unknown operator or relation answers `422`.
+- Any positive `limit` is accepted. Without `limit`, a page holds 50 rows. `limits` (and `resources[name].limits`) restrict the accepted values: anything else is a `422` with `errors: { 'search.limit': [...] }`.
 - `selects` keeps the listed fields. `includes` embeds relations declared in `resources[name].relations` (`belongsTo` as an object or `null`, `hasMany` as an array), with their own `filters`, `sorts`, `selects`, `limit` and nested `includes`.
-- `like` folds ASCII letters only (`é` and `É` differ), `%` and `_` are wildcards, a backslash escapes them. `in` and `not in` never match a null value, and `not in` a list holding `null` matches nothing.
-- Null sorts first ascending and last descending, as in SQLite.
-- Dates (`Date` objects and ISO strings in seeds, mutations and filter values) are stored and compared as `Y-m-d H:i:s` in UTC. A date-only string compares as text.
-- `text: { value }` matches `%value%` on the string fields (all of them, or `resources[name].searchable`).
-- With `resources[name].schema`, created and updated records are validated: `422` with errors keyed like Laravel, `mutate.<index>.attributes.<field>`. `resources[name].unique` lists unique fields: a duplicate is a `422` on `mutate.<index>.attributes.<field>`.
-- Updating an unknown id returns `404`. Deleting an unknown id, or deleting without `resources`, returns `422` (`resources.<index>`, `resources`).
+- `like` is case-insensitive, `%` and `_` are wildcards, a backslash escapes them unless `likeEscape: false`. `in []` matches nothing.
+- Null sorts last in both directions. Dates are kept as given.
+- `text: { value }` keeps the records where a string field contains the value, case-insensitively (all string fields, or `resources[name].searchable`).
+- With `resources[name].schema`, created and updated records are validated: `422` with errors keyed by field name (`record` for a root issue). `resources[name].unique` lists unique fields: a duplicate is a `422` keyed by the field.
+- Updating an unknown id returns `404`. Deleting an unknown id succeeds, so a delete can be repeated.
 - Generated ids are numbers when the seed ids are numbers, strings otherwise.
 - `failures` injects faults, rule by rule: `{ method?, path?, after?, times?, status?, network?, delay? }`. A rule matches a method and a path such as `/users/search`, skips `after` matching calls, then fires `times` times (every call when omitted). It answers `status` (400 to 599, body `{ message: 'Injected failure', errors: {} }`), rejects with a `TypeError` for `network: true`, and waits `delay` ms first. The first rule that fires wins.
 - `timing` defaults to 300 ms per call. Pass `timing: 0` in tests.
 - `mock.fetch` forwards foreign URLs to the `fetch` captured at `createMock`.
 
-Not supported: aggregates, scopes, instructions, gates, text search sorts and filters limited to a scout field list, field name validation, policies, soft deletes, restore and force delete, `mutate` operations other than `create` and `update`, relation mutations, validation without a schema. A backslash in a `like` pattern is an escape unless `likeEscape: false`, whereas SQLite and Lomkit read it literally.
+#### Compatibility profile
+
+`profile: 'lomkit'` is an optional convenience for code that talks to `lomkit/laravel-rest-api`. It is opt-in and changes only these points:
+
+| Topic | Default | `profile: 'lomkit'` |
+|---|---|---|
+| `limit` | any positive integer | one of `[10, 25, 50]`, else `422` (option `limits`) |
+| Mutation error keys | field name | `mutate.<index>.attributes.<field>` |
+| Delete of an unknown id or without ids | success | `422` (`resources.<index>`, `resources`), nothing deleted |
+| `in []` | no row | `422` |
+| `in` and `not in` with null | plain comparison | a null value never matches, a list holding `null` matches nothing in `not in` |
+| Dates | kept as given | stored and compared as `Y-m-d H:i:s` in UTC |
+| Null sorting | last in both directions | first ascending, last descending |
+| `like` case folding | Unicode lowercase | ASCII letters only |
+| Backslash in `like` | escape (`likeEscape: true`) | literal (`likeEscape: false`) |
+| Group in a group | up to 10 levels (option `maxNestingDepth`) | `422` (1 level) |
+| Unknown search or filter keys, `aggregates`, `scopes`, `instructions`, `gates` | ignored | `422` (empty arrays accepted) |
+| `like` filter with `text` | allowed | `422` |
+| `text` | plain substring | `%value%` pattern, `%` and `_` are wildcards |
+
+`limits`, `maxNestingDepth`, `likeEscape`, `unique`, `searchable` and `failures` work with or without the profile, and an explicit option wins over the profile.
+
+Not supported: aggregates, scopes, instructions, gates, text search sorts and filters limited to a scout field list, field name validation, policies, soft deletes, restore and force delete, `mutate` operations other than `create` and `update`, relation mutations, validation without a schema.
 
 Full details in the [documentation](https://techmefr.github.io/shamock/).
 

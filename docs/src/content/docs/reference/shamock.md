@@ -54,6 +54,7 @@ interface MockConfig {
   baseUrl: string
   seed: MockSeed
   resources?: Record<string, MockResource>
+  profile?: 'lomkit'
   limits?: number[]
   likeEscape?: boolean
   maxNestingDepth?: number
@@ -113,6 +114,6 @@ interface MockableResource {
 | `install` | Replaces `globalThis.fetch` and returns the mock with `restore`. |
 | `restore` | Removes this install. Safe to call twice, and in any order across nested installs. |
 
-Defaults: `timing` is `300` ms (pass `0` in tests), accepted range `0` to `60000`; `limits` is `[10, 25, 50]`. `baseUrl` must be absolute.
+Defaults: `timing` is `300` ms (pass `0` in tests), accepted range `0` to `60000`; `limits` is unset (any positive `limit`), `[10, 25, 50]` with `profile: 'lomkit'`. `baseUrl` must be absolute.
 
 Routes, payloads, errors and limits are described in the [Mock API guide](/shamock/guides/mocking/).
