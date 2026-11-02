@@ -113,7 +113,7 @@ The `search` wrapper is optional: a flat body works too. The response is a Larav
 - Sorting puts null and missing values last in both directions.
 - Any positive `limit` is accepted. When `limits` is set, `limit` must be one of them, otherwise `422` with `errors: { "search.limit": [...] }`. Without `limit`, a page holds 50 rows.
 - `selects: [{ field }]` keeps only those fields.
-- `includes: [{ relation, filters, sorts, selects, limit, includes }]` embeds a relation declared in `resources[name].relations`: `belongsTo` becomes an object or `null`, `hasMany` an array, with `limit` applied per parent. The `limit` of an include must be one of the `limits` of the related resource. An undeclared relation returns `422`.
+- `includes: [{ relation, filters, sorts, selects, limit, includes }]` embeds a relation declared in `resources[name].relations`: `belongsTo` becomes an object or `null`, `hasMany` an array, with `limit` applied per parent. The `limit` of an include must be one of the `limits` of the related resource. An undeclared relation is ignored, so data embedded in your JSON stays as is (the lomkit profile answers `422`).
 
 ### Mutate
 
@@ -167,7 +167,7 @@ Errors are `{ "message": "...", "errors": {} }`.
 |---|---|
 | `404` | Unknown resource, route or method, a URL outside `baseUrl` on `handle`, or an update of an unknown id. |
 | `413` | Body larger than 1 MB, counted in bytes. |
-| `422` | Invalid JSON, invalid payload, unsupported operation, unknown search operator, unknown relation, limit outside `limits`, schema or unique validation failure, duplicate or invalid id. The lomkit profile adds unsupported or unknown search keys, an empty `in`, and delete of an unknown id or without ids. |
+| `422` | Invalid JSON, invalid payload, unsupported operation, unknown search operator, limit outside `limits`, schema or unique validation failure, duplicate or invalid id. The lomkit profile adds unsupported or unknown search keys, an unknown relation, an empty `in`, and delete of an unknown id or without ids. |
 
 ## Limits
 
@@ -198,6 +198,7 @@ Errors are `{ "message": "...", "errors": {} }`.
 | Backslash in `like` | escape (`likeEscape: true`) | literal (`likeEscape: false`) |
 | Group in a group | up to 10 levels (option `maxNestingDepth`) | `422` (1 level) |
 | Unknown search or filter keys, `aggregates`, `scopes`, `instructions`, `gates` | ignored | `422` (empty arrays accepted) |
+| `includes` of an undeclared relation | ignored | `422` |
 | `like` filter with `text` | allowed | `422` |
 | `text` | plain substring | `%value%` pattern, `%` and `_` are wildcards |
 

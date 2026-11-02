@@ -245,8 +245,15 @@ describe('includes', () => {
         expect((await search({ includes: [{ relation: 'posts', limit: 2 }] })).status).toBe(200)
     })
 
-    it('refuses unknown relations and unsupported include keys', async () => {
-        const { search } = await plain({ seed, resources })
+    it('ignores unknown relations and keeps the embedded data without a profile', async () => {
+        const { search } = await plain({ seed: { users: [{ id: 1, name: 'a', manager: { name: 'x' } }] } })
+        expect((await search({ includes: [{ relation: 'manager' }] })).body.data).toEqual([{ id: 1, name: 'a', manager: { name: 'x' } }])
+        expect((await search({ includes: [{ relation: 'nope' }, {}] })).status).toBe(200)
+        expect((await search({ includes: [{ relation: 1 }] })).status).toBe(422)
+    })
+
+    it('refuses unknown relations under the lomkit profile', async () => {
+        const { search } = await start({ seed, resources })
         expect((await search({ includes: [{ relation: 'nope' }] })).status).toBe(422)
         expect((await search({ includes: [{ relation: 'toString' }] })).status).toBe(422)
         expect((await search({ includes: [{}] })).status).toBe(422)
@@ -258,8 +265,8 @@ describe('includes', () => {
         expect((await search({ includes: [{ relation: 'manager', aggregates: [{ relation: 'posts', type: 'count' }] }] })).status).toBe(422)
     })
 
-    it('refuses an include on a resource without relations', async () => {
-        const { search } = await plain({ seed })
+    it('refuses an include on a resource without relations under the lomkit profile', async () => {
+        const { search } = await start({ seed })
         expect((await search({ includes: [{ relation: 'manager' }] })).status).toBe(422)
     })
 

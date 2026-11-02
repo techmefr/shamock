@@ -133,7 +133,7 @@ const mock = await createMock({
 The mock answers from the JSON you provide. Its default behavior is simple and data-driven.
 
 - `and` binds tighter than `or`, as in SQL: `a and b or c and d` is `(a and b) or (c and d)`. A group (`nested`) counts as one condition.
-- Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Unknown keys are ignored. An unknown operator or relation answers `422`.
+- Supported in `search`: `filters`, `sorts`, `selects`, `includes`, `text`, `limit`, `page`. Unknown keys are ignored. An unknown operator answers `422`. An `includes` entry naming an undeclared relation is ignored, so data embedded in your JSON stays as is.
 - Any positive `limit` is accepted. Without `limit`, a page holds 50 rows. `limits` (and `resources[name].limits`) restrict the accepted values: anything else is a `422` with `errors: { 'search.limit': [...] }`.
 - `selects` keeps the listed fields. `includes` embeds relations declared in `resources[name].relations` (`belongsTo` as an object or `null`, `hasMany` as an array), with their own `filters`, `sorts`, `selects`, `limit` and nested `includes`.
 - `like` is case-insensitive, `%` and `_` are wildcards, a backslash escapes them unless `likeEscape: false`. `in []` matches nothing.
@@ -163,6 +163,7 @@ The mock answers from the JSON you provide. Its default behavior is simple and d
 | Backslash in `like` | escape (`likeEscape: true`) | literal (`likeEscape: false`) |
 | Group in a group | up to 10 levels (option `maxNestingDepth`) | `422` (1 level) |
 | Unknown search or filter keys, `aggregates`, `scopes`, `instructions`, `gates` | ignored | `422` (empty arrays accepted) |
+| `includes` of an undeclared relation | ignored | `422` |
 | `like` filter with `text` | allowed | `422` |
 | `text` | plain substring | `%value%` pattern, `%` and `_` are wildcards |
 

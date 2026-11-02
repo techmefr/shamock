@@ -314,12 +314,17 @@ function limitOf(search: Record<string, unknown>, options: SearchOptions, path: 
 }
 
 function includesOf(value: unknown, options: SearchOptions, path: string): ParsedInclude[] {
-    return listOf(value, 'includes').map((item, index) => {
+    const includes: ParsedInclude[] = []
+    listOf(value, 'includes').forEach((item, index) => {
         const name = optionalString(item, 'relation')
         const relation = name === undefined || !Object.hasOwn(options.relations ?? {}, name) ? undefined : (options.relations as Record<string, SearchRelation>)[name]
-        if (name === undefined || relation === undefined) throw invalid(`unknown relation "${name ?? ''}"`)
-        return { name, relation, search: parseSearch(item, relation.options(), `${path}.includes.${index}`, INCLUDE_KEYS) }
+        if (name === undefined || relation === undefined) {
+            if (options.lomkit === true) throw invalid(`unknown relation "${name ?? ''}"`)
+            return
+        }
+        includes.push({ name, relation, search: parseSearch(item, relation.options(), `${path}.includes.${index}`, INCLUDE_KEYS) })
     })
+    return includes
 }
 
 function parseSearch(search: Record<string, unknown>, options: SearchOptions, path: string, allowed: string[]): ParsedSearch {
