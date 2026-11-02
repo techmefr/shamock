@@ -20,10 +20,21 @@
 **Real schemas. Ghost data.**
 
 shamock intercepts the real `fetch` call and, instead of letting it reach the
-backend, answers with the JSON you provide. On top of that interception, a small
-engine (seed, search, mutate, delete) lets the answers follow your data, and any
+backend, answers with the JSON you provide. That interception is the core and
+knows no protocol. An optional **engine** makes the answers follow a state and a
+request protocol (`shamock/rest`, `shamock/lomkit`, or your own), and any
 [Standard Schema](https://standardschema.dev) validator (Zod, Valibot,
 ArkType...) checks your fixtures. Zero dependencies.
+
+| Entry | Contains | gzip |
+|---|---|---|
+| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes. No engine, no protocol. | 5.0 kB |
+| `shamock/rest` | generic REST engine driven by the JSON | +1.3 kB (6.4 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 11.8 kB with the core |
+| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 11.9 kB |
+| `shamock/enabled` | the switch only | 0.3 kB |
+
+Prefer `shamock/core` and pass `engine` explicitly: you bundle only what you use. `shamock` keeps the lomkit engine as its default so that existing code keeps working.
 
 > **Keywords** — `mock` · `mocking` · `fixtures` · `mock-data` · `schema-validation` · `standard-schema` · `typescript` · `zod` · `valibot` · `arktype` · `offline` · `fallback` · `testing`
 
@@ -58,12 +69,60 @@ await parseMockList(product, [{ id: 1, name: 'A' }])
 
 ## Mock the network
 
+### Without an engine: static JSON per route
+
+shamock works with no engine, no state and no protocol. Each route answers a fixed JSON (or a function that builds it).
+
 ```ts
-import { installMock } from 'shamock'
+import { installMock } from 'shamock/core'
+
+const mock = await installMock({
+  baseUrl: 'https://api.example.com',
+  timing: 0,
+  routes: {
+    'GET /products': [{ id: 1, name: 'A' }],
+    'POST /login': { token: 'abc' },
+    '/ping': 'pong',
+    'GET /me': (request, path) => new Response('{"message":"nope"}', { status: 401 }),
+  },
+})
+
+const products = await (await fetch('https://api.example.com/products')).json()
+
+mock.restore()
+```
+
+A key is `METHOD /path` or `/path` (any method), trailing slashes ignored. A value is JSON, or a function `(request, path) => value | Response`. Requests under `baseUrl` that match no route go to the real `fetch`. `failures`, `timing`, `enabled`, `fetch` and `reset` work the same.
+
+### With a rest engine
+
+```ts
+import { installMock } from 'shamock/core'
+import { rest } from 'shamock/rest'
 
 const mock = await installMock({
   baseUrl: 'https://api.example.com',
   seed: { products: [{ id: 1, name: 'A' }] },
+  engine: rest(),
+  timing: 0,
+})
+
+await fetch('https://api.example.com/products?sort=-name&page=1&perPage=10')
+await fetch('https://api.example.com/products', { method: 'POST', body: JSON.stringify({ name: 'B' }) })
+```
+
+Routes: `GET /<r>` (query `page`, `perPage` or `limit`, `sort=name,-age`, any other parameter is an equality filter, header `X-Total-Count`), `GET /<r>/:id`, `POST /<r>` (201), `PATCH|PUT /<r>/:id`, `DELETE /<r>/:id` (204). Errors are `{ message, errors }` with 404 or 422. `resources[name].schema` validates every written record, `resources[name].unique` keeps fields unique, numeric and string ids are kept as given. `rest({ collection })` shapes the list body (for example a hydra envelope) and `rest({ defaultPerPage })` sets the page size when only `page` is given. The plain array it answers is read as is by the nexdk `nest` and `symfony` drivers.
+
+### With the lomkit engine
+
+```ts
+import { installMock } from 'shamock/core'
+import { lomkit } from 'shamock/lomkit'
+
+const mock = await installMock({
+  baseUrl: 'https://api.example.com',
+  seed: { products: [{ id: 1, name: 'A' }] },
+  engine: lomkit({ profile: 'lomkit' }),
   timing: 0,
 })
 
@@ -76,8 +135,10 @@ const { data } = await response.json()
 mock.restore()
 ```
 
+The main entry `shamock` does the same without `engine`: `installMock({ baseUrl, seed })` uses the lomkit engine and accepts its options (`profile`, `limits`, `likeEscape`, `maxNestingDepth`) at the root of the config.
+
 `installMock` replaces `globalThis.fetch`. Requests under `baseUrl` are
-answered from the seed, every other request goes to the previous `fetch`.
+answered by the static routes or the engine, every other request goes to the previous `fetch`.
 `createMock` returns the same mock without touching the global.
 
 ## Activate with a variable
@@ -107,7 +168,7 @@ if (import.meta.env.DEV && isMockEnabled({ SHAMOCK: import.meta.env.VITE_SHAMOCK
 }
 ```
 
-With a constant condition such as `import.meta.env.DEV`, the bundler drops the shamock chunk (about 7 kB gzipped). With `isMockEnabled` alone the chunk is emitted but never loaded when the variable is off.
+With a constant condition such as `import.meta.env.DEV`, the bundler drops the shamock chunk (about 5 kB gzipped for `shamock/core`, 12 kB with the lomkit engine). With `isMockEnabled` alone the chunk is emitted but never loaded when the variable is off.
 
 ## Mock only what is not ready
 
@@ -137,22 +198,70 @@ beforeEach(() => mock.reset())
 | `parseMock(resource, mock)` | Validate one value. |
 | `parseMockList(resource, mock)` | Validate an array, or wrap one value in an array. |
 | `MockValidationError` | Thrown on invalid data, with `issues` and `index`. |
-| `createMock(config)` | Returns `{ handle, fetch, install }`. |
+| `createMock(config)` | Returns `{ handle, fetch, install }`. From `shamock/core`, `engine` is optional and there is no default. From `shamock`, the default engine is lomkit. |
 | `installMock(config)` | Installs the mock and returns it with `restore()`. |
+| `rest(options?)` | `shamock/rest`: the generic REST engine. |
+| `lomkit(options?)` | `shamock/lomkit`: the search / mutate / delete engine. |
+| `HttpError`, `json`, `notFound`, `readJson`, `readRequiredJson`, `validateRecord`, `invalidData` | Helpers for writing an engine (`shamock/core`). |
+| `Engine`, `EngineContext`, `EngineRequest`, `EngineSetup`, `Route`, `Store`, `Row` | Engine types. |
 | `isMockEnabled(env?, variable?)` | Reads the switch variable. Also exported from `shamock/enabled`. |
 | `mock.reset()` | Puts every resource back to its seed and rewinds `failures`. |
 | `MockConfig`, `MockSeed`, `MockResource`, `MockRelation`, `FailureRule`, `FetchLike`, `Mock`, `InstalledMock`, `MockableResource` | Types. |
 
-shamock answers a documented request protocol (search, mutate, delete), not a particular backend. Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
+## Write an engine
+
+An engine is two functions. `match` decides whether a request belongs to a resource, `handle` answers it. The core does the rest: base URL, `enabled`, `mock: false` pass-through, latency, `failures`, per-request serialization (`exclusive`), the in-memory store and its `reset`.
+
+```ts
+export interface Engine<TRoute extends Route = Route, TResource extends object = object> {
+  match(request: { method: string; path: string }): TRoute | undefined
+  handle(context: EngineContext<TRoute, TResource>): Response | Promise<Response>
+  normalize?: (attributes: Record<string, unknown>) => Record<string, unknown>
+  validate?(setup: { resources: Record<string, MockResource & TResource>; names: string[] }): void
+}
+```
+
+- `match` receives the method and the path under `baseUrl` (leading `/`, no trailing slash) and returns a `Route` (`{ resource: string, ...anything }`) or `undefined` for a 404. The core sends the request to the real `fetch` when `resources[route.resource].mock` is `false`.
+- `handle` receives `{ request, method, path, route, store, resource, storeOf, resourceOf, exclusive }`. `store` is the in-memory store of the route resource (`all`, `get`, `insert`, `update`, `has`, `remove`, `transaction`, `preview`), `resource` its config. Writes go through `exclusive(async () => ...)`. Throw an `HttpError(status, message, errors)` and the core answers `{ message, errors }`.
+- `normalize` runs on every stored record (for example to format dates), `validate` runs once at creation to reject a bad config.
+- Per-resource options of your engine are the type parameter `TResource`: `resources[name]` is checked against `MockResource & TResource`.
+
+A complete engine, a bare list and create:
+
+```ts
+import { createMock, json } from 'shamock/core'
+import type { Engine } from 'shamock/core'
+
+const lists: Engine = {
+  match: ({ method, path }) => {
+    const [, resource, extra] = path.split('/')
+    return resource && !extra && (method === 'GET' || method === 'POST') ? { resource } : undefined
+  },
+  handle: async ({ method, request, store }) =>
+    method === 'POST' ? json(store.insert(await request.json()), 201) : json(store.all()),
+}
+
+await createMock({ baseUrl: 'https://api.example.com', seed: { users: [] }, engine: lists })
+```
+
+To mimic another backend (PocketBase, Strapi, Hydra...), write the engine in your own code from this contract. Start from `rest` for the routes and the `collection` option for a different list envelope.
+
+## Lomkit engine
+
+`shamock/lomkit` (and the default of the main entry) answers a documented request protocol (search, mutate, delete), not a particular backend. Routes under `baseUrl`: `POST /<resource>/search`, `POST /<resource>/mutate`
 and `DELETE /<resource>`. `search` answers a paginated envelope (`data` plus `current_page`, `last_page`, `per_page`, `total`, `from`, `to` at the root, `meta: []`, 50 rows per page by default). `mutate` supports create and update only and answers `{ created: [ids], updated: [ids] }`, the ids written. Failures
 return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 
 ### Configuration
 
+Core fields (`shamock/core`): `baseUrl`, `seed`, `engine`, `routes`, `resources[name].schema`, `resources[name].unique`, `resources[name].mock`, `failures`, `timing`, `enabled`, `fetch`. The other `resources[name]` fields and `profile`, `limits`, `likeEscape`, `maxNestingDepth` belong to the lomkit engine (passed to `lomkit(options)`, or at the root of the config of the main entry).
+
 | Field | Notes |
 |---|---|
 | `baseUrl` | Absolute URL. Routes live under its path. |
-| `seed` | `{ [resource]: object[] }`. Each key becomes a resource. |
+| `seed` | `{ [resource]: object[] }`. Each key becomes a resource. Optional without an engine. |
+| `engine` | `rest()`, `lomkit()` or your own. Optional in `shamock/core`. |
+| `routes` | `{ 'METHOD /path' \| '/path': json \| (request, path) => json \| Response }`. Checked before the engine. |
 | `resources[name].schema` | Standard Schema. Validates the seed and every written record. |
 | `resources[name].unique` | Field names that must stay unique. |
 | `resources[name].limits` | Accepted `limit` values for this resource. |

@@ -37,6 +37,8 @@ function createMock(config: MockConfig): Promise<Mock>
 
 Validates the config and seeds, then returns a mock. Nothing is installed.
 
+The config accepts `engine` (`rest()` from `shamock/rest`, `lomkit()` from `shamock/lomkit`, or your own) and `routes` (static JSON per route). Imported from `shamock/core`, `engine` is optional and there is no default: without it only `routes` answer. Imported from `shamock`, the lomkit engine is the default when `engine` is omitted, and its options (`profile`, `limits`, `likeEscape`, `maxNestingDepth`) sit at the root of the config. See [Engines](/shamock/guides/engines/).
+
 Throws `MockValidationError` for invalid seeds, `RangeError` for an invalid `timing`, `limits` or failure `status`, `delay`, `after` or `times`, `TypeError` for an invalid failure rule, and an `Error` when `resources` names a resource missing from `seed` or a relation targets one.
 
 ## `installMock(config)`

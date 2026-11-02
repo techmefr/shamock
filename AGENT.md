@@ -1,7 +1,9 @@
 # AGENT.md — shamock
 
 ## Role
-shamock intercepts the real `fetch` call and answers with the JSON it is given, instead of reaching the backend. The seed/search/mutate engine is a convenience layer on top, driven by the data. Zero dependencies.
+shamock = interception of the real `fetch` + interchangeable engines. The core knows no protocol (the word "lomkit" must never appear in the `shamock/core` dist, check it after a build). An engine implements `Engine` (`match`, `handle`, optional `normalize`, `validate`) and lives behind its own export. Zero dependencies.
+- Entries: `shamock/core` (no default engine, optional `engine`, `routes` for static JSON per route, usable with no engine at all), `shamock/rest` (generic REST engine), `shamock/lomkit` (search/mutate/delete engine and `profile: 'lomkit'`), `shamock` (core plus lomkit, which stays the default when `engine` is omitted, to keep existing code working), `shamock/enabled`. Recommended: `shamock/core` with an explicit `engine`. Do not add one entry per backend: document how to write an engine instead.
+- Sizes (gzip): core 5.0 kB, core + rest 6.4 kB, core + lomkit 11.8 kB, main 11.9 kB. Re-measure after a change to an engine or the core.
 - `parseMock`, `parseMockList`, `MockValidationError`: async validation of `T | T[]` against a Standard Schema. They accept a minimal `MockableResource` (`{ schema }`), never a full nexdk `Resource`.
 - `createMock(config)` returns `{ handle, fetch, install }`. `installMock(config)` installs it on `globalThis.fetch` and returns the mock plus `restore()`.
 
@@ -9,16 +11,20 @@ shamock intercepts the real `fetch` call and answers with the JSON it is given, 
 - `MockConfig.enabled: false` disables everything: `install()` is a no-op with a no-op `restore`, `mock.fetch` and `handle` call the real `fetch` (`config.fetch` or the captured `globalThis.fetch`). `resources[name].mock: false` sends that resource to the real `fetch` (no seed entry needed). `mock.reset()` rebuilds the stores from the seed and the failure counters.
 
 ## Layout
-- `src/parse-mock.ts` validation and `MockValidationError`.
-- `src/mock.ts` `createMock`, `installMock`, config and routing.
+Core (no protocol):
+- `src/core.ts` entry `shamock/core`. `src/create-mock.ts` `createMock`, `installMock`, static `routes`, routing to the engine.
+- `src/engine.ts` the `Engine` contract and its types.
+- `src/parse-mock.ts` validation and `MockValidationError`. `src/validation.ts` record validation helpers.
 - `src/enabled.ts` `isMockEnabled`, separate build entry.
 - `src/install.ts` `fetch` installation, nested installs restorable in any order.
 - `src/store.ts` in-memory rows, ids, transactions (atomic writes).
-- `src/search.ts` filters (SQL precedence), sorts, selects, includes, pagination, limits, bounds.
 - `src/failures.ts` fault injection rules and their call counters.
-- `src/dates.ts` conversion of dates to `Y-m-d H:i:s`.
-- `src/request-body.ts` body reading, `mutate` and delete payloads, bounds.
-- `src/http-error.ts`, `src/record.ts`, `src/standard-schema.ts` helpers.
+- `src/body.ts` bounded JSON body reading. `src/response.ts`, `src/http-error.ts`, `src/record.ts`, `src/standard-schema.ts` helpers.
+
+Engines:
+- `src/lomkit.ts` entry `shamock/lomkit`. `src/lomkit/engine.ts` routes, mutate, delete, options. `src/lomkit/search.ts` filters (SQL precedence), sorts, selects, includes, pagination, limits, bounds. `src/lomkit/dates.ts`, `src/lomkit/request-body.ts`.
+- `src/rest.ts` entry `shamock/rest`.
+- `src/mock.ts` main entry wrapper: the core with the lomkit engine as default. `src/search.ts` and `src/request-body.ts` only re-export, so existing imports keep working.
 
 ## Rules
 - Never import `nexdk` or `beepr`. shamock only knows a `{ schema }` shape.
@@ -29,7 +35,7 @@ shamock intercepts the real `fetch` call and answers with the JSON it is given, 
 - Fault injection is the `failures` config (`method`, `path`, `after`, `times`, `status`, `network`, `delay`). Keep it that small.
 - `timing` defaults to 300 ms because a test asserts it. Do not change the default.
 - `aggregates` (count, exists, sum, avg, min, max over `links`, alias `<relation_snake>_<type>[_<field>]`), `scopes` and `instructions` (functions `(rows, params|fields) => rows`) and `gates` (functions `(row) => boolean`, answered under `gates` with the `authorized_to_*` names) are declared per resource and read at the root of `search` only. Without a declaration they are ignored, or `422` under the lomkit profile. A `.keyword` suffix on a filter or sort field is stripped.
-- Resource options live in `MockResource` (`schema`, `unique`, `limits`, `searchable`, `links`, `scopes`, `instructions`, `gates`, `mock`). A new option needs README, docs and tests.
+- Core resource options: `schema`, `unique`, `mock`. Lomkit resource options: `limits`, `searchable`, `links`, `scopes`, `instructions`, `gates`. A new option needs README, docs and tests. An engine passes the shared contract test `test/engine-contract.ts`.
 - Errors are `{ message, errors }` with 404, 413 or 422. Keep the limits: body 1 MB in bytes, 1000 mutations or ids, 100 filters, like pattern 256 characters, 1000 values per array, 10 000 rows per resource, nesting 10 (`maxNestingDepth`, default 10, 1 with the lomkit profile).
 - Requests outside `baseUrl` go to the previous `fetch`. XHR is not intercepted.
 - Same calling code with the mock and with the real backend: the switch is the variable (`enabled`) or `resources[name].mock`, never a change in the callers. State is in memory and restarts from the seed, no persistence. Guard the install with a dynamic `import('shamock')` behind a compile-time constant to keep it out of production bundles.

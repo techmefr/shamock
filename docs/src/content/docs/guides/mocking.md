@@ -3,7 +3,7 @@ title: Mock API
 description: Answer fetch calls from seed data with createMock and installMock.
 ---
 
-shamock intercepts the real `fetch` call and answers with the JSON you provide instead of reaching the backend. A small engine (search, mutate, delete) serves your seed data, in process. No server, no dependency.
+shamock intercepts the real `fetch` call and answers with the JSON you provide instead of reaching the backend. This page describes the lomkit engine (search, mutate, delete), the default of the `shamock` entry, which serves your seed data in process. To pick another engine, or to use none, see [Engines](/shamock/guides/engines/). No server, no dependency.
 
 ## Install the mock
 

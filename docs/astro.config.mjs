@@ -49,6 +49,10 @@ export default defineConfig({
                 "slug": "guides/offline-fallback"
             },
             {
+                "label": "Engines",
+                "slug": "guides/engines"
+            },
+            {
                 "label": "Mock API",
                 "slug": "guides/mocking"
             },
