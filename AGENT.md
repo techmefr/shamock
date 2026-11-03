@@ -3,7 +3,7 @@
 ## Role
 shamock = interception of the real `fetch` that replays rather than interprets: JSON per slug (`routes`), CRUD by convention (`shamock/rest`), record and replay (`record`, `mock.recorded()`), named scenarios. The lomkit engine is an option. The core knows no protocol (the word "lomkit" must never appear in the `shamock/core` dist, check it after a build). An engine implements `Engine` (`match`, `handle`, optional `normalize`, `validate`) and lives behind its own export. Zero dependencies.
 - Entries: `shamock/core` (no default engine, optional `engine`, `routes` for static JSON per route, usable with no engine at all), `shamock/rest` (generic REST engine), `shamock/lomkit` (search/mutate/delete engine and `profile: 'lomkit'`), `shamock` (core plus lomkit, which stays the default when `engine` is omitted, to keep existing code working), `shamock/enabled`. Recommended: `shamock/core` with an explicit `engine`. Do not add one entry per backend: document how to write an engine instead.
-- Sizes (gzip, esbuild bundle not minified): core 6.2 kB, core + rest 7.1 kB, core + lomkit 13.0 kB, main 13.0 kB. Re-measure after a change to an engine or the core.
+- Sizes (gzip, esbuild bundle not minified): core 6.4 kB, core + rest 7.2 kB, core + lomkit 13.1 kB, main 13.1 kB. Re-measure after a change to an engine or the core.
 - `parseMock`, `parseMockList`, `MockValidationError`: async validation of `T | T[]` against a Standard Schema. They accept a minimal `MockableResource` (`{ schema }`), never a full nexdk `Resource`.
 - `createMock(config)` returns `{ handle, fetch, install, reset, recorded }`. `installMock(config)` installs it on `globalThis.fetch` and returns the mock plus `restore()`.
 

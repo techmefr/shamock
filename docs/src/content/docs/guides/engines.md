@@ -7,10 +7,10 @@ shamock replays rather than interprets. The **core** intercepts `fetch`, knows n
 
 | Entry | Contains | gzip |
 |---|---|---|
-| `shamock/core` | interception, switch, per-resource `mock`, `failures`, `timing`, `reset`, in-memory store and seed, static routes, record and replay, scenarios | 6.2 kB |
-| `shamock/rest` | CRUD by convention | +0.9 kB (7.1 kB with the core) |
-| `shamock/lomkit` | search / mutate / delete engine, `profile: 'lomkit'` | 13.0 kB with the core |
-| `shamock` | the core and the lomkit engine, used when `engine` is omitted | 13.0 kB |
+| `shamock/core` | interception, switch, per-resource `mock`, `failures`, `timing`, `reset`, in-memory store and seed, static routes, record and replay, scenarios | 6.4 kB |
+| `shamock/rest` | CRUD by convention | +0.8 kB (7.2 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine, `profile: 'lomkit'` | 13.1 kB with the core |
+| `shamock` | the core and the lomkit engine, used when `engine` is omitted | 13.1 kB |
 
 Recommended: import from `shamock/core` and pass `engine` explicitly. The main entry `shamock` keeps the lomkit engine as its default so that existing code keeps working.
 

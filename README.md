@@ -33,10 +33,10 @@ ArkType...) checks your fixtures. Zero dependencies.
 
 | Entry | Contains | gzip |
 |---|---|---|
-| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes, record and replay, scenarios. No engine, no protocol. | 6.2 kB |
-| `shamock/rest` | CRUD by convention | +0.9 kB (7.1 kB with the core) |
-| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 13.0 kB with the core |
-| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 13.0 kB |
+| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes, record and replay, scenarios. No engine, no protocol. | 6.4 kB |
+| `shamock/rest` | CRUD by convention | +0.8 kB (7.2 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 13.1 kB with the core |
+| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 13.1 kB |
 | `shamock/enabled` | the switch only | 0.3 kB |
 
 Prefer `shamock/core` and pass `engine` explicitly: you bundle only what you use. `shamock` keeps the lomkit engine as its default so that existing code keeps working.
