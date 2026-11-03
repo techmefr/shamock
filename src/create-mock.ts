@@ -5,17 +5,16 @@ import { HttpError } from './http-error.ts'
 import { installFetch } from './install.ts'
 import type { FetchLike } from './install.ts'
 import { parseMockList } from './parse-mock.ts'
+import { createRecorder } from './recorder.ts'
 import { json, notFound } from './response.ts'
+import { routeResponse, routeTable, textKey, trimmed } from './route-table.ts'
+import type { StaticRoute } from './route-table.ts'
+import { withScenario } from './scenarios.ts'
+import type { MockScenario, MockSeed } from './scenarios.ts'
 import { createStore } from './store.ts'
 import type { Store } from './store.ts'
 
-export type { FailureRule, FetchLike }
-
-export interface MockSeed {
-    [resourceName: string]: ReadonlyArray<object>
-}
-
-export type StaticRoute = unknown | ((request: Request, path: string) => unknown)
+export type { FailureRule, FetchLike, MockScenario, MockSeed, StaticRoute }
 
 export interface MockOptions<TResource extends object = object> {
     baseUrl: string
@@ -26,6 +25,10 @@ export interface MockOptions<TResource extends object = object> {
     timing?: number
     enabled?: boolean
     fetch?: FetchLike
+    unhandled?: 'passthrough' | 'error'
+    record?: boolean
+    scenarios?: Record<string, MockScenario>
+    scenario?: string
 }
 
 export interface MockConfig<TResource extends object = object> extends MockOptions<TResource> {
@@ -37,6 +40,7 @@ export interface Mock {
     fetch: FetchLike
     install: () => InstalledMock
     reset: () => void
+    recorded: () => Record<string, unknown>
 }
 
 export interface InstalledMock extends Mock {
@@ -79,20 +83,6 @@ function validatedTiming(timing: number | undefined): number {
     return timing
 }
 
-const ROUTE_KEY = /^(?:([A-Za-z]+)\s+)?(\/\S*)$/
-
-const trimmed = (path: string): string => path.replace(/\/+$/, '')
-
-function staticRoutes(routes: Record<string, StaticRoute> | undefined): Map<string, StaticRoute> {
-    const table = new Map<string, StaticRoute>()
-    for (const [key, value] of Object.entries(routes ?? {})) {
-        const match = ROUTE_KEY.exec(key)
-        if (match === null) throw new TypeError(`Invalid route "${key}": expected "METHOD /path" or "/path"`)
-        table.set(`${(match[1] ?? '').toUpperCase()} ${trimmed(match[2] as string)}`, value)
-    }
-    return table
-}
-
 const urlOf = (input: RequestInfo | URL): URL | undefined => {
     if (input instanceof URL) return input
     try {
@@ -112,19 +102,30 @@ const disabledMock = (config: { fetch?: FetchLike }): Mock => {
         fetch: (input, init) => passthrough.call(globalThis, input, init),
         install: () => ({ ...mock, restore: () => undefined }),
         reset: () => undefined,
+        recorded: () => ({}),
     }
     return mock
 }
 
-export async function createMock<TResource extends object = object>(config: MockConfig<TResource>): Promise<Mock> {
-    if (config.enabled === false) return disabledMock(config)
+function validatedUnhandled(unhandled: unknown): void {
+    if (unhandled !== undefined && unhandled !== 'passthrough' && unhandled !== 'error') {
+        throw new TypeError('Invalid unhandled: expected "passthrough" or "error"')
+    }
+}
+
+export async function createMock<TResource extends object = object>(options: MockConfig<TResource>): Promise<Mock> {
+    if (options.enabled === false) return disabledMock(options)
+    const config = withScenario(options)
+    validatedUnhandled(config.unhandled)
     const timing = validatedTiming(config.timing)
     const engine = config.engine
     let failureFor = createFailures(config.failures)
     const resources = config.resources ?? {}
     const seed = await validatedSeed(config.seed ?? {}, resources)
     engine?.validate?.({ resources, names: [...seed.keys()] })
-    const fixed = staticRoutes(config.routes)
+    const fixed = routeTable(config.routes)
+    const recorder = createRecorder()
+    const hashes = new WeakMap<Request, Promise<string | undefined>>()
     const storesFromSeed = (): Map<string, Store> =>
         new Map<string, Store>([...seed].map(([name, items]) => [name, createStore(items, engine?.normalize)]))
     let stores = storesFromSeed()
@@ -148,22 +149,27 @@ export async function createMock<TResource extends object = object>(config: Mock
     const resourceOf = (name: string): (MockResource & Partial<TResource>) | undefined =>
         Object.hasOwn(resources, name) ? resources[name] : undefined
 
-    const fixedFor = (method: string, path: string): { value: StaticRoute } | undefined => {
-        const key = [`${method} ${path}`, ` ${path}`].find(candidate => fixed.has(candidate))
-        return key === undefined ? undefined : { value: fixed.get(key) }
+    const hashOf = (request: Request): Promise<string | undefined> => {
+        const hash = hashes.get(request) ?? request.clone().text().then(textKey)
+        hashes.set(request, hash)
+        return hash
     }
 
-    const respond = async (found: { value: StaticRoute }, request: Request, path: string): Promise<Response> => {
-        const value = typeof found.value === 'function' ? await (found.value as (request: Request, path: string) => unknown)(request, path) : found.value
-        return value instanceof Response ? value : json(value)
-    }
+    const fixedFor = async (method: string, path: string, request: () => Request): Promise<{ value: StaticRoute } | undefined> =>
+        fixed.find(method, path, fixed.hashed(method, path) ? await hashOf(request()) : undefined)
+
+    const respond = async (found: { value: StaticRoute }, request: Request, path: string): Promise<Response> =>
+        routeResponse(typeof found.value === 'function' ? await (found.value as (request: Request, path: string) => unknown)(request, path) : found.value)
+
+    const unhandled = (method: string, path: string): Response =>
+        config.unhandled === 'error' ? json({ message: `No mock for ${method} ${path === '' ? '/' : path}` }, 501) : notFound()
 
     const route = async (method: string, path: string, request: Request): Promise<Response> => {
-        const found = fixedFor(method, path)
+        const found = await fixedFor(method, path, () => request)
         if (found !== undefined) return respond(found, request, path)
         const matched = engine?.match({ method, path })
         const store = matched === undefined ? undefined : stores.get(matched.resource)
-        if (engine === undefined || matched === undefined || store === undefined) return notFound()
+        if (engine === undefined || matched === undefined || store === undefined) return unhandled(method, path)
         const context: EngineContext<Route, TResource> = {
             request,
             method,
@@ -199,29 +205,37 @@ export async function createMock<TResource extends object = object>(config: Mock
     const reset = (): void => {
         stores = storesFromSeed()
         failureFor = createFailures(config.failures)
+        recorder.clear()
     }
 
-    const isMocked = (method: string, path: string | undefined): boolean => {
-        if (path === undefined) return false
-        if (fixedFor(method, path) !== undefined) return true
-        if (engine === undefined) return false
+    const isMocked = async (method: string, path: string, request: () => Request): Promise<boolean> => {
+        if ((await fixedFor(method, path, request)) !== undefined) return true
+        if (engine === undefined) return config.unhandled === 'error'
         const matched = engine.match({ method, path })
         return matched === undefined || resourceOf(matched.resource)?.mock !== false
     }
 
     const serve = (next: () => FetchLike): FetchLike => {
-        return (input, init) => {
-            if (!isMocked(methodOf(input, init), pathOf(urlOf(input)))) return next().call(globalThis, input, init)
-            return handle(new Request(input, init))
+        return async (input, init) => {
+            const path = pathOf(urlOf(input))
+            if (path === undefined) return next().call(globalThis, input, init)
+            const method = methodOf(input, init)
+            let request: Request | undefined
+            const built = (): Request => (request ??= new Request(input, init))
+            if (config.record === true) return recorder.capture(built(), method, path, next())
+            if (await isMocked(method, path, built)) return handle(built())
+            return request === undefined ? next().call(globalThis, input, init) : next().call(globalThis, request)
         }
     }
 
+    const recorded = recorder.recorded
+
     const install = (): InstalledMock => {
         const { fetch, restore } = installFetch(serve)
-        return { handle, fetch, install, reset, restore }
+        return { handle, fetch, install, reset, restore, recorded }
     }
 
-    return { handle, fetch: serve(() => origin), install, reset }
+    return { handle, fetch: serve(() => origin), install, reset, recorded }
 }
 
 export async function installMock<TResource extends object = object>(config: MockConfig<TResource>): Promise<InstalledMock> {
