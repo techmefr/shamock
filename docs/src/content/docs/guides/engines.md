@@ -1,16 +1,16 @@
 ---
 title: Engines
-description: The agnostic core, the rest and lomkit engines, static routes without an engine, and how to write your own engine.
+description: JSON per route, record and replay, scenarios, CRUD by convention with the rest engine, the optional lomkit engine, and how to write your own engine.
 ---
 
-shamock is two layers. The **core** intercepts `fetch` and knows no protocol. An **engine** is an optional plug-in that gives the answers a state and a request protocol.
+shamock replays rather than interprets. The **core** intercepts `fetch`, knows no protocol and answers JSON per route, recorded or written by hand, with named scenarios. An **engine** is an optional plug-in that gives the answers a state: `rest` for CRUD by convention, `lomkit` for that protocol, or your own.
 
 | Entry | Contains | gzip |
 |---|---|---|
-| `shamock/core` | interception, switch, per-resource `mock`, `failures`, `timing`, `reset`, in-memory store and seed, static routes | 5.0 kB |
-| `shamock/rest` | generic REST engine | +1.3 kB (6.4 kB with the core) |
-| `shamock/lomkit` | search / mutate / delete engine, `profile: 'lomkit'` | 11.8 kB with the core |
-| `shamock` | the core and the lomkit engine, used when `engine` is omitted | 11.9 kB |
+| `shamock/core` | interception, switch, per-resource `mock`, `failures`, `timing`, `reset`, in-memory store and seed, static routes, record and replay, scenarios | 6.0 kB |
+| `shamock/rest` | CRUD by convention | +0.9 kB (6.9 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine, `profile: 'lomkit'` | 12.8 kB with the core |
+| `shamock` | the core and the lomkit engine, used when `engine` is omitted | 12.8 kB |
 
 Recommended: import from `shamock/core` and pass `engine` explicitly. The main entry `shamock` keeps the lomkit engine as its default so that existing code keeps working.
 
@@ -33,10 +33,45 @@ const mock = await installMock({
 })
 ```
 
-- A key is `METHOD /path` or `/path` (any method). Trailing slashes are ignored.
-- A value is JSON, or a function `(request, path) => json | Response`.
-- Requests under `baseUrl` that match no route go to the real `fetch`. Through `mock.handle` they answer `404`.
+- A key is `METHOD /path` or `/path` (any method). Trailing slashes are ignored, the query string is not part of the key.
+- `METHOD /path #<hash>` answers only the request whose body hashes to `<hash>`: `bodyKey(body)` from `shamock/core`, FNV-1a 32 bits in hex of the JSON with keys sorted at every level. A key with a hash wins over the same key without.
+- A value is JSON, `{ "$status": number, "$body": json }` for another status (`$body` omitted for an empty body), or a function `(request, path) => value | Response`.
+- Requests under `baseUrl` that match no route go to the real `fetch` (`unhandled: 'passthrough'`, the default). Through `mock.handle` they answer `404`. With an engine, a path it does not match answers `404` as before.
+- `unhandled: 'error'` answers every request under `baseUrl` with no route and no engine match (or an engine resource missing from the seed) with `501` `{ "message": "No mock for METHOD /path" }`, through `fetch` and `handle`.
 - `failures`, `timing`, `enabled`, `fetch` and `reset` apply to static routes too. `routes` is checked before the engine when both are given.
+
+## Record and replay
+
+```ts
+import { createMock } from 'shamock/core'
+
+const recorder = await createMock({ baseUrl: 'https://api.example.com', record: true })
+await recorder.fetch('https://api.example.com/products')
+const routes = recorder.recorded()
+
+const replay = await createMock({ baseUrl: 'https://api.example.com', routes, unhandled: 'error' })
+```
+
+- With `record: true`, every request under `baseUrl` goes to the real `fetch` (`config.fetch`, or the previous global once installed) and its answer is returned untouched. No latency, no failures, no engine.
+- `mock.recorded()` returns an object usable as `routes`: `METHOD /path`, with ` #<hash>` when the request has a body. A 2xx JSON answer is stored as is, any other status as `{ $status, $body }`, an empty body as `{ $status }`. A body that is not JSON is not recorded. The query string is not part of the key, the last answer wins.
+- `reset()` clears the recordings. `mock.handle` does not record.
+
+## Scenarios
+
+```ts
+await installMock({
+  baseUrl: 'https://api.example.com',
+  seed: { users: [{ id: 1, name: 'Ada' }] },
+  engine: rest(),
+  scenarios: {
+    empty: { seed: { users: [] } },
+    down: { failures: [{ status: 503 }] },
+  },
+  scenario: 'empty',
+})
+```
+
+A scenario holds `routes`, `seed` and `failures`. The chosen one is merged over the config at creation: `routes` and `seed` key by key, `failures` replaced when the scenario gives them. An unknown scenario throws. `reset()` goes back to the merged seed.
 
 ## The rest engine
 
@@ -54,13 +89,13 @@ const mock = await installMock({
 
 | Request | Answer |
 |---|---|
-| `GET /<r>` | An array. Query `page`, `perPage` or `limit`, `sort=name,-age`, every other parameter is an equality filter. Header `X-Total-Count`. |
+| `GET /<r>` | An array. Every query parameter is an equality filter. Header `X-Total-Count`. |
 | `GET /<r>/:id` | The record, or `404`. |
 | `POST /<r>` | `201` with the record. |
 | `PATCH` or `PUT /<r>/:id` | `200` with the merged record, `404` for an unknown id. |
 | `DELETE /<r>/:id` | `204`, `404` for an unknown id. |
 
-Errors are `{ message, errors }` with `404` or `422`. `resources[name].schema` (Standard Schema) validates every written record, `resources[name].unique` keeps fields unique, and numeric or string ids are kept as given. `rest({ collection })` shapes the list body, for example a hydra envelope. `rest({ defaultPerPage })` sets the page size when only `page` is given (default 25).
+Errors are `{ message, errors }` with `404` or `422`. `resources[name].schema` (Standard Schema) validates every written record, `resources[name].unique` keeps fields unique, and numeric or string ids are kept as given. There is no sorting and no pagination: `sort` or `page` filter like any other parameter. A sorted or paged answer goes in `routes`, written or recorded.
 
 The plain array and the plain record it answers are read as is by the nexdk `nest` and `symfony` drivers.
 
@@ -110,6 +145,6 @@ const lists: Engine = {
 await createMock({ baseUrl: 'https://api.example.com', seed: { users: [] }, engine: lists })
 ```
 
-To imitate another backend (PocketBase, Strapi, Hydra), write that engine in your own code from this contract. `rest` is a good starting point: its source is the model, and `collection` already changes the list envelope.
+To imitate another backend (PocketBase, Strapi, Hydra), write that engine in your own code from this contract. `rest` is a good starting point: its source is the model. Often recording the real backend and replaying it is enough.
 
 Any engine can be checked with the shared contract test of the repository (`test/engine-contract.ts`): matching, state and `reset`, unknown resource, `mock: false`, outside `baseUrl`, `failures`, `enabled: false`.

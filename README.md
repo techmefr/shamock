@@ -20,18 +20,23 @@
 **Real schemas. Ghost data.**
 
 shamock intercepts the real `fetch` call and, instead of letting it reach the
-backend, answers with the JSON you provide. That interception is the core and
-knows no protocol. An optional **engine** makes the answers follow a state and a
-request protocol (`shamock/rest`, `shamock/lomkit`, or your own), and any
+backend, answers with the JSON you provide. It replays rather than interprets:
+
+- **JSON per slug**: `routes` maps `METHOD /path` (optionally keyed by the body) to a JSON answer.
+- **CRUD by convention**: `shamock/rest` keeps a state for `GET`, `POST`, `PATCH`, `DELETE` on `/<r>` and `/<r>/:id`.
+- **Record and replay**: `record: true` captures real answers as `routes`, ready to replay offline.
+- **Scenarios**: named overrides of routes, seed and failures, picked with `scenario`.
+
+The lomkit engine (`shamock/lomkit`, default of the main entry) is an option for that protocol. Any
 [Standard Schema](https://standardschema.dev) validator (Zod, Valibot,
 ArkType...) checks your fixtures. Zero dependencies.
 
 | Entry | Contains | gzip |
 |---|---|---|
-| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes. No engine, no protocol. | 5.0 kB |
-| `shamock/rest` | generic REST engine driven by the JSON | +1.3 kB (6.4 kB with the core) |
-| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 11.8 kB with the core |
-| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 11.9 kB |
+| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes, record and replay, scenarios. No engine, no protocol. | 6.0 kB |
+| `shamock/rest` | CRUD by convention | +0.9 kB (6.9 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 12.8 kB with the core |
+| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 12.8 kB |
 | `shamock/enabled` | the switch only | 0.3 kB |
 
 Prefer `shamock/core` and pass `engine` explicitly: you bundle only what you use. `shamock` keeps the lomkit engine as its default so that existing code keeps working.
@@ -44,7 +49,7 @@ Prefer `shamock/core` and pass `engine` explicitly: you bundle only what you use
 |---|---|
 | **Real schemas** | Validate fixtures with any Standard Schema validator. |
 | **Actionable errors** | `MockValidationError` reports issues, field paths and list indexes. |
-| **Mock API over `fetch`** | `search`, `mutate` and `DELETE` routes served from seed data. |
+| **Mock API over `fetch`** | JSON per route, CRUD by convention, record and replay, scenarios. |
 | **Safe by default** | Atomic writes, bounded inputs, no dependency. |
 
 ## Install
@@ -92,7 +97,39 @@ const products = await (await fetch('https://api.example.com/products')).json()
 mock.restore()
 ```
 
-A key is `METHOD /path` or `/path` (any method), trailing slashes ignored. A value is JSON, or a function `(request, path) => value | Response`. Requests under `baseUrl` that match no route go to the real `fetch`. `failures`, `timing`, `enabled`, `fetch` and `reset` work the same.
+A key is `METHOD /path` or `/path` (any method), trailing slashes ignored, the query string is not part of it. `METHOD /path #<hash>` answers only the body whose `bodyKey(body)` is that hash (FNV-1a 32 bits of the JSON with sorted keys), and wins over the key without hash. A value is JSON, `{ "$status": 401, "$body": {...} }` for another status, or a function `(request, path) => value | Response`. `failures`, `timing`, `enabled`, `fetch` and `reset` work the same.
+
+Requests under `baseUrl` that match no route go to the real `fetch` (`unhandled: 'passthrough'`, the default). `unhandled: 'error'` answers them `501` `{ "message": "No mock for GET /path" }` instead, also for a resource an engine matches but the seed lacks.
+
+### Record and replay
+
+```ts
+const recorder = await installMock({ baseUrl: 'https://api.example.com', record: true })
+await runTheApp()
+writeFileSync('routes.json', JSON.stringify(recorder.recorded(), null, 2))
+
+await installMock({ baseUrl: 'https://api.example.com', routes: JSON.parse(readFileSync('routes.json', 'utf8')), unhandled: 'error' })
+```
+
+With `record: true`, every request under `baseUrl` goes to the real `fetch` and its answer comes back untouched. `mock.recorded()` returns the captured answers as `routes`: `METHOD /path`, plus `#<hash>` when the request has a body, a 2xx JSON body as is, any other status as `{ $status, $body }`, an empty body as `{ $status }`. A body that is not JSON is not recorded. The last answer wins for a key. `reset()` clears the recordings. Recording goes through `fetch` and `install`, not `handle`.
+
+### Scenarios
+
+```ts
+await installMock({
+  baseUrl: 'https://api.example.com',
+  engine: rest(),
+  seed: { users: [{ id: 1, name: 'Ada' }] },
+  routes: { 'GET /me': { id: 1 } },
+  scenarios: {
+    empty: { seed: { users: [] } },
+    loggedOut: { routes: { 'GET /me': { $status: 401, $body: { message: 'Unauthenticated.' } } } },
+  },
+  scenario: process.env.SHAMOCK_SCENARIO,
+})
+```
+
+The chosen scenario is merged over the config: `routes` and `seed` key by key, `failures` replaced when given. An unknown name throws at creation.
 
 ### With a rest engine
 
@@ -107,11 +144,11 @@ const mock = await installMock({
   timing: 0,
 })
 
-await fetch('https://api.example.com/products?sort=-name&page=1&perPage=10')
+await fetch('https://api.example.com/products?name=A')
 await fetch('https://api.example.com/products', { method: 'POST', body: JSON.stringify({ name: 'B' }) })
 ```
 
-Routes: `GET /<r>` (query `page`, `perPage` or `limit`, `sort=name,-age`, any other parameter is an equality filter, header `X-Total-Count`), `GET /<r>/:id`, `POST /<r>` (201), `PATCH|PUT /<r>/:id`, `DELETE /<r>/:id` (204). Errors are `{ message, errors }` with 404 or 422. `resources[name].schema` validates every written record, `resources[name].unique` keeps fields unique, numeric and string ids are kept as given. `rest({ collection })` shapes the list body (for example a hydra envelope) and `rest({ defaultPerPage })` sets the page size when only `page` is given. The plain array it answers is read as is by the nexdk `nest` and `symfony` drivers.
+Routes: `GET /<r>` (every query parameter is an equality filter, header `X-Total-Count`), `GET /<r>/:id`, `POST /<r>` (201), `PATCH|PUT /<r>/:id`, `DELETE /<r>/:id` (204). Errors are `{ message, errors }` with 404 or 422. `resources[name].schema` validates every written record, `resources[name].unique` keeps fields unique, numeric and string ids are kept as given. No sorting, no pagination: `sort` or `page` are filters like any other parameter. For a sorted or paged answer, give it in `routes` (a static value or a function) or record it. The plain array it answers is read as is by the nexdk `nest` and `symfony` drivers.
 
 ### With the lomkit engine
 
@@ -168,7 +205,7 @@ if (import.meta.env.DEV && isMockEnabled({ SHAMOCK: import.meta.env.VITE_SHAMOCK
 }
 ```
 
-With a constant condition such as `import.meta.env.DEV`, the bundler drops the shamock chunk (about 5 kB gzipped for `shamock/core`, 12 kB with the lomkit engine). With `isMockEnabled` alone the chunk is emitted but never loaded when the variable is off.
+With a constant condition such as `import.meta.env.DEV`, the bundler drops the shamock chunk (about 6 kB gzipped for `shamock/core`, 13 kB with the lomkit engine). With `isMockEnabled` alone the chunk is emitted but never loaded when the variable is off.
 
 ## Mock only what is not ready
 
@@ -200,7 +237,9 @@ beforeEach(() => mock.reset())
 | `MockValidationError` | Thrown on invalid data, with `issues` and `index`. |
 | `createMock(config)` | Returns `{ handle, fetch, install }`. From `shamock/core`, `engine` is optional and there is no default. From `shamock`, the default engine is lomkit. |
 | `installMock(config)` | Installs the mock and returns it with `restore()`. |
-| `rest(options?)` | `shamock/rest`: the generic REST engine. |
+| `rest()` | `shamock/rest`: CRUD by convention. |
+| `bodyKey(body)` | `shamock/core`: the hash used in `METHOD /path #<hash>` route keys. |
+| `mock.recorded()` | The answers captured with `record: true`, as `routes`. |
 | `lomkit(options?)` | `shamock/lomkit`: the search / mutate / delete engine. |
 | `HttpError`, `json`, `notFound`, `readJson`, `readRequiredJson`, `validateRecord`, `invalidData` | Helpers for writing an engine (`shamock/core`). |
 | `Engine`, `EngineContext`, `EngineRequest`, `EngineSetup`, `Route`, `Store`, `Row` | Engine types. |
@@ -244,7 +283,7 @@ const lists: Engine = {
 await createMock({ baseUrl: 'https://api.example.com', seed: { users: [] }, engine: lists })
 ```
 
-To mimic another backend (PocketBase, Strapi, Hydra...), write the engine in your own code from this contract. Start from `rest` for the routes and the `collection` option for a different list envelope.
+To mimic another backend (PocketBase, Strapi, Hydra...), write the engine in your own code from this contract, starting from the source of `rest`, or record the real backend and replay it.
 
 ## Lomkit engine
 
@@ -254,14 +293,17 @@ return `404`, `413` or `422` with `{ message, errors }`. XHR is not intercepted.
 
 ### Configuration
 
-Core fields (`shamock/core`): `baseUrl`, `seed`, `engine`, `routes`, `resources[name].schema`, `resources[name].unique`, `resources[name].mock`, `failures`, `timing`, `enabled`, `fetch`. The other `resources[name]` fields and `profile`, `limits`, `likeEscape`, `maxNestingDepth` belong to the lomkit engine (passed to `lomkit(options)`, or at the root of the config of the main entry).
+Core fields (`shamock/core`): `baseUrl`, `seed`, `engine`, `routes`, `resources[name].schema`, `resources[name].unique`, `resources[name].mock`, `failures`, `timing`, `enabled`, `fetch`, `unhandled`, `record`, `scenarios`, `scenario`. The other `resources[name]` fields and `profile`, `limits`, `likeEscape`, `maxNestingDepth` belong to the lomkit engine (passed to `lomkit(options)`, or at the root of the config of the main entry).
 
 | Field | Notes |
 |---|---|
 | `baseUrl` | Absolute URL. Routes live under its path. |
 | `seed` | `{ [resource]: object[] }`. Each key becomes a resource. Optional without an engine. |
 | `engine` | `rest()`, `lomkit()` or your own. Optional in `shamock/core`. |
-| `routes` | `{ 'METHOD /path' \| '/path': json \| (request, path) => json \| Response }`. Checked before the engine. |
+| `routes` | `{ 'METHOD /path' \| '/path' \| 'METHOD /path #hash': json \| { $status, $body } \| (request, path) => json \| Response }`. Checked before the engine. |
+| `unhandled` | `'passthrough'` (default) or `'error'`: a request under `baseUrl` with no route and no engine match answers `501`. |
+| `record` | `true` sends every request under `baseUrl` to the real `fetch` and captures it for `mock.recorded()`. |
+| `scenarios`, `scenario` | `{ [name]: { routes?, seed?, failures? } }` and the name merged over the config. |
 | `resources[name].schema` | Standard Schema. Validates the seed and every written record. |
 | `resources[name].unique` | Field names that must stay unique. |
 | `resources[name].limits` | Accepted `limit` values for this resource. |

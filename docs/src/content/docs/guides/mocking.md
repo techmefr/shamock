@@ -3,7 +3,7 @@ title: Mock API
 description: Answer fetch calls from seed data with createMock and installMock.
 ---
 
-shamock intercepts the real `fetch` call and answers with the JSON you provide instead of reaching the backend. This page describes the lomkit engine (search, mutate, delete), the default of the `shamock` entry, which serves your seed data in process. To pick another engine, or to use none, see [Engines](/shamock/guides/engines/). No server, no dependency.
+shamock intercepts the real `fetch` call and answers with the JSON you provide instead of reaching the backend. This page describes the lomkit engine (search, mutate, delete), an option kept as the default of the `shamock` entry, which serves your seed data in process. For JSON per route, CRUD by convention, record and replay and scenarios, see [Engines](/shamock/guides/engines/). No server, no dependency.
 
 ## Install the mock
 
@@ -78,6 +78,10 @@ const direct = await mock.handle(new Request('https://api.example.com/products/s
 | `fetch` | The `fetch` used for requests that are not mocked. Default: `globalThis.fetch` when `createMock` is called. |
 | `resources[name].mock` | `false` sends the resource to the real `fetch`. Default `true`. |
 | `timing` | Delay in ms, from `0` to `60000`. Default `300`: pass `0` in tests. Out of range throws `RangeError`. |
+| `routes` | Static JSON per route, checked before the engine, see [Engines](/shamock/guides/engines/#no-engine-static-json-per-route). |
+| `unhandled` | `'passthrough'` (default) or `'error'` (`501` for a request no route or engine handles). |
+| `record` | `true` sends every request under `baseUrl` to the real `fetch` and captures it, read with `mock.recorded()`. See [Record and replay](/shamock/guides/engines/#record-and-replay). |
+| `scenarios`, `scenario` | Named overrides of `routes`, `seed` and `failures`, and the one to apply. See [Scenarios](/shamock/guides/engines/#scenarios). |
 
 Invalid seed data throws `MockValidationError` from `createMock`.
 

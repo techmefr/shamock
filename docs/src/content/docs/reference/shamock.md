@@ -37,9 +37,9 @@ function createMock(config: MockConfig): Promise<Mock>
 
 Validates the config and seeds, then returns a mock. Nothing is installed.
 
-The config accepts `engine` (`rest()` from `shamock/rest`, `lomkit()` from `shamock/lomkit`, or your own) and `routes` (static JSON per route). Imported from `shamock/core`, `engine` is optional and there is no default: without it only `routes` answer. Imported from `shamock`, the lomkit engine is the default when `engine` is omitted, and its options (`profile`, `limits`, `likeEscape`, `maxNestingDepth`) sit at the root of the config. See [Engines](/shamock/guides/engines/).
+The config accepts `engine` (`rest()` from `shamock/rest`, `lomkit()` from `shamock/lomkit`, or your own), `routes` (static JSON per route, keys `METHOD /path`, `/path` or `METHOD /path #<bodyKey>`, values JSON, `{ $status, $body }` or a function), `unhandled` (`'passthrough'` or `'error'`, `501` for an unhandled call), `record` (capture real answers for `mock.recorded()`) and `scenarios` with `scenario` (named overrides of `routes`, `seed` and `failures`). Imported from `shamock/core`, `engine` is optional and there is no default: without it only `routes` answer. Imported from `shamock`, the lomkit engine is the default when `engine` is omitted, and its options (`profile`, `limits`, `likeEscape`, `maxNestingDepth`) sit at the root of the config. See [Engines](/shamock/guides/engines/).
 
-Throws `MockValidationError` for invalid seeds, `RangeError` for an invalid `timing`, `limits` or failure `status`, `delay`, `after` or `times`, `TypeError` for an invalid failure rule, and an `Error` when `resources` names a resource missing from `seed` or a relation targets one.
+Throws `MockValidationError` for invalid seeds, `RangeError` for an invalid `timing`, `limits` or failure `status`, `delay`, `after` or `times`, `TypeError` for an invalid failure rule, an `Error` when `resources` names a resource missing from `seed` or a relation targets one, or when `scenario` names an unknown scenario, and a `TypeError` for an invalid `unhandled` or route key.
 
 ## `installMock(config)`
 
@@ -116,6 +116,7 @@ interface Mock {
   fetch: FetchLike
   install: () => InstalledMock
   reset: () => void
+  recorded: () => Record<string, unknown>
 }
 
 interface InstalledMock extends Mock {
@@ -133,7 +134,8 @@ interface MockableResource {
 |---|---|
 | `handle` | Answers a `Request` as the mock. `404` outside `baseUrl`. |
 | `fetch` | Serves requests under `baseUrl`, forwards the rest to the `fetch` captured when `createMock` was called. |
-| `reset` | Puts every resource back to its seed and rewinds the `failures` counters. |
+| `reset` | Puts every resource back to its seed, rewinds the `failures` counters and clears the recordings. |
+| `recorded` | With `record: true`, the captured answers as an object usable as `routes`. `{}` otherwise. |
 | `install` | Replaces `globalThis.fetch` and returns the mock with `restore`. |
 | `restore` | Removes this install. Safe to call twice, and in any order across nested installs. |
 
