@@ -7,24 +7,10 @@ import type { FieldErrors } from './validation.ts'
 
 export type { Row }
 
-export interface ListPage {
-    rows: Row[]
-    total: number
-    page: number
-    perPage: number | undefined
-}
-
-export interface RestOptions {
-    collection?: (page: ListPage) => unknown
-    defaultPerPage?: number
-}
-
 export interface RestRoute extends Route {
     kind: 'list' | 'one' | 'create' | 'update' | 'remove'
     id?: string
 }
-
-const RESERVED = new Set(['page', 'perPage', 'limit', 'sort'])
 
 const decode = (segment: string): string => {
     try {
@@ -32,30 +18,6 @@ const decode = (segment: string): string => {
     } catch {
         return segment
     }
-}
-
-const positive = (value: string | null): number | undefined => {
-    const number = Number(value)
-    return value !== null && Number.isInteger(number) && number > 0 ? number : undefined
-}
-
-const order = (left: unknown, right: unknown): number => {
-    if (left === right) return 0
-    if (left === undefined || left === null) return 1
-    if (right === undefined || right === null) return -1
-    return (left as number | string) > (right as number | string) ? 1 : -1
-}
-
-function sorted(rows: Row[], keys: string[]): Row[] {
-    if (keys.length === 0) return rows
-    const fields = keys.map(key => (key.startsWith('-') ? { field: key.slice(1), sign: -1 } : { field: key.replace(/^\+/, ''), sign: 1 }))
-    return [...rows].sort((a, b) => {
-        for (const { field, sign } of fields) {
-            const result = order(a[field], b[field])
-            if (result !== 0) return result * sign
-        }
-        return 0
-    })
 }
 
 function taken(unique: string[], record: Row, rows: Row[], attributes: Row): FieldErrors {
@@ -70,23 +32,14 @@ function taken(unique: string[], record: Row, rows: Row[], attributes: Row): Fie
 
 const missing = notFound
 
-export function rest(options: RestOptions = {}): Engine<RestRoute> {
+export function rest(): Engine<RestRoute> {
     const list = (context: EngineContext<RestRoute>): Response => {
-        const params = new URL(context.request.url).searchParams
         const wanted = new Map<string, string[]>()
-        for (const [key, value] of params) {
-            if (!RESERVED.has(key)) wanted.set(key, [...(wanted.get(key) ?? []), value])
-        }
-        const matching = context.store
+        for (const [key, value] of new URL(context.request.url).searchParams) wanted.set(key, [...(wanted.get(key) ?? []), value])
+        const rows = context.store
             .all()
             .filter(row => [...wanted].every(([field, values]) => Object.hasOwn(row, field) && values.includes(String(row[field]))))
-        const rows = sorted(matching, params.getAll('sort').flatMap(value => value.split(',')).filter(key => key !== ''))
-        const given = positive(params.get('perPage')) ?? positive(params.get('limit'))
-        const page = positive(params.get('page')) ?? 1
-        const perPage = given ?? (params.has('page') ? (options.defaultPerPage ?? 25) : undefined)
-        const slice = perPage === undefined ? rows : rows.slice((page - 1) * perPage, page * perPage)
-        const body = options.collection === undefined ? slice : options.collection({ rows: slice, total: rows.length, page, perPage })
-        return json(body, 200, { 'X-Total-Count': String(rows.length) })
+        return json(rows, 200, { 'X-Total-Count': String(rows.length) })
     }
 
     const write = (context: EngineContext<RestRoute>): Promise<Response> =>

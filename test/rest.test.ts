@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { createMock } from '../src/core.ts'
 import type { FetchLike } from '../src/core.ts'
 import { rest } from '../src/rest.ts'
-import type { RestOptions } from '../src/rest.ts'
 
 const BASE = 'http://api.test/api'
 
@@ -14,8 +13,8 @@ const people = [
     { id: 4, name: 'Alan', age: 41, team: 'b' },
 ]
 
-async function setup(options?: RestOptions, resources = {}, seed: Record<string, object[]> = { people }): Promise<FetchLike> {
-    return (await createMock({ baseUrl: BASE, seed, resources, engine: rest(options), timing: 0 })).fetch
+async function setup(resources = {}, seed: Record<string, object[]> = { people }): Promise<FetchLike> {
+    return (await createMock({ baseUrl: BASE, seed, resources, engine: rest(), timing: 0 })).fetch
 }
 
 const call = (fetch: FetchLike, method: string, path: string, body?: unknown): Promise<Response> =>
@@ -36,36 +35,16 @@ describe('rest engine reads', () => {
         expect(await (await call(fetch, 'GET', '/people?missing=1')).json()).toEqual([])
     })
 
-    it('sorts ascending, descending and by several fields', async () => {
+    it('reads sort and page as plain equality filters', async () => {
         const fetch = await setup()
-        const names = async (query: string): Promise<string[]> =>
-            ((await (await call(fetch, 'GET', `/people?${query}`)).json()) as { name: string }[]).map(row => row.name)
-        expect(await names('sort=age')).toEqual(['Ada', 'Alan', 'Linus', 'Grace'])
-        expect(await names('sort=-age')).toEqual(['Grace', 'Linus', 'Alan', 'Ada'])
-        expect(await names('sort=team,-age')).toEqual(['Linus', 'Ada', 'Grace', 'Alan'])
-    })
-
-    it('paginates with page and perPage or limit and reports the total', async () => {
-        const fetch = await setup()
-        const second = await call(fetch, 'GET', '/people?page=2&perPage=3')
-        expect(await second.json()).toEqual([people[3]])
-        expect(second.headers.get('X-Total-Count')).toBe('4')
-        expect(await (await call(fetch, 'GET', '/people?limit=2')).json()).toEqual([people[0], people[1]])
-        expect(await (await call(fetch, 'GET', '/people?page=1')).json()).toHaveLength(4)
-    })
-
-    it('uses defaultPerPage when only page is given', async () => {
-        const fetch = await setup({ defaultPerPage: 2 })
-        expect(await (await call(fetch, 'GET', '/people?page=2')).json()).toEqual([people[2], people[3]])
-    })
-
-    it('shapes the collection with the collection option', async () => {
-        const fetch = await setup({ collection: ({ rows, total }) => ({ 'hydra:member': rows, 'hydra:totalItems': total }) })
-        expect(await (await call(fetch, 'GET', '/people?perPage=1')).json()).toEqual({ 'hydra:member': [people[0]], 'hydra:totalItems': 4 })
+        const response = await call(fetch, 'GET', '/people?sort=age&page=1')
+        expect(await response.json()).toEqual([])
+        expect(response.headers.get('X-Total-Count')).toBe('0')
+        expect(await (await call(fetch, 'GET', '/people?age=41')).json()).toEqual([people[3]])
     })
 
     it('finds one row by numeric or string id and answers 404 otherwise', async () => {
-        const fetch = await setup(undefined, {}, { people, tags: [{ id: 'x1', label: 'one' }] })
+        const fetch = await setup({}, { people, tags: [{ id: 'x1', label: 'one' }] })
         expect(await (await call(fetch, 'GET', '/people/2')).json()).toEqual(people[1])
         expect(await (await call(fetch, 'GET', '/tags/x1')).json()).toEqual({ id: 'x1', label: 'one' })
         expect((await call(fetch, 'GET', '/people/99')).status).toBe(404)
@@ -84,7 +63,7 @@ describe('rest engine writes', () => {
     })
 
     it('keeps a given string id and refuses a duplicate with 422', async () => {
-        const fetch = await setup(undefined, {}, { tags: [{ id: 'a', label: 'A' }] })
+        const fetch = await setup({}, { tags: [{ id: 'a', label: 'A' }] })
         expect((await call(fetch, 'POST', '/tags', { id: 'b', label: 'B' })).status).toBe(201)
         expect((await call(fetch, 'POST', '/tags', { id: 'b', label: 'C' })).status).toBe(422)
     })
@@ -113,7 +92,7 @@ describe('rest engine writes', () => {
 
     it('validates with the resource schema and keeps the store untouched on failure', async () => {
         const schema = z.object({ id: z.number(), name: z.string().min(2), age: z.number().optional(), team: z.string().optional() })
-        const fetch = await setup(undefined, { people: { schema } })
+        const fetch = await setup({ people: { schema } })
         const refused = await call(fetch, 'POST', '/people', { name: 'K' })
         expect(refused.status).toBe(422)
         const body = (await refused.json()) as { message: string; errors: Record<string, string[]> }
@@ -124,7 +103,7 @@ describe('rest engine writes', () => {
     })
 
     it('enforces unique fields', async () => {
-        const fetch = await setup(undefined, { people: { unique: ['name'] } })
+        const fetch = await setup({ people: { unique: ['name'] } })
         const refused = await call(fetch, 'POST', '/people', { name: 'Ada' })
         expect(refused.status).toBe(422)
         expect(await refused.json()).toEqual({ message: 'The given data was invalid.', errors: { name: ['The name has already been taken.'] } })
