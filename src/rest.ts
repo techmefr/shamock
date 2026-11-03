@@ -34,11 +34,12 @@ const missing = notFound
 
 export function rest(): Engine<RestRoute> {
     const list = (context: EngineContext<RestRoute>): Response => {
+        const all = context.store.all()
         const wanted = new Map<string, string[]>()
-        for (const [key, value] of new URL(context.request.url).searchParams) wanted.set(key, [...(wanted.get(key) ?? []), value])
-        const rows = context.store
-            .all()
-            .filter(row => [...wanted].every(([field, values]) => Object.hasOwn(row, field) && values.includes(String(row[field]))))
+        for (const [key, value] of new URL(context.request.url).searchParams) {
+            if (all.some(row => Object.hasOwn(row, key))) wanted.set(key, [...(wanted.get(key) ?? []), value])
+        }
+        const rows = all.filter(row => [...wanted].every(([field, values]) => Object.hasOwn(row, field) && values.includes(String(row[field]))))
         return json(rows, 200, { 'X-Total-Count': String(rows.length) })
     }
 

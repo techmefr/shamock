@@ -7,10 +7,10 @@ shamock replays rather than interprets. The **core** intercepts `fetch`, knows n
 
 | Entry | Contains | gzip |
 |---|---|---|
-| `shamock/core` | interception, switch, per-resource `mock`, `failures`, `timing`, `reset`, in-memory store and seed, static routes, record and replay, scenarios | 6.0 kB |
-| `shamock/rest` | CRUD by convention | +0.9 kB (6.9 kB with the core) |
-| `shamock/lomkit` | search / mutate / delete engine, `profile: 'lomkit'` | 12.8 kB with the core |
-| `shamock` | the core and the lomkit engine, used when `engine` is omitted | 12.8 kB |
+| `shamock/core` | interception, switch, per-resource `mock`, `failures`, `timing`, `reset`, in-memory store and seed, static routes, record and replay, scenarios | 6.2 kB |
+| `shamock/rest` | CRUD by convention | +0.9 kB (7.1 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine, `profile: 'lomkit'` | 13.0 kB with the core |
+| `shamock` | the core and the lomkit engine, used when `engine` is omitted | 13.0 kB |
 
 Recommended: import from `shamock/core` and pass `engine` explicitly. The main entry `shamock` keeps the lomkit engine as its default so that existing code keeps working.
 
@@ -33,7 +33,7 @@ const mock = await installMock({
 })
 ```
 
-- A key is `METHOD /path` or `/path` (any method). Trailing slashes are ignored, the query string is not part of the key.
+- A key is `METHOD /path` or `/path` (any method). Trailing slashes are ignored. A query string is part of the key, parameters sorted by name then value (`GET /users?team=a`). Lookup order: exact key with query and hash, then without query, then without hash, then neither.
 - `METHOD /path #<hash>` answers only the request whose body hashes to `<hash>`: `bodyKey(body)` from `shamock/core`, FNV-1a 32 bits in hex of the JSON with keys sorted at every level. A key with a hash wins over the same key without.
 - A value is JSON, `{ "$status": number, "$body": json }` for another status (`$body` omitted for an empty body), or a function `(request, path) => value | Response`.
 - Requests under `baseUrl` that match no route go to the real `fetch` (`unhandled: 'passthrough'`, the default). Through `mock.handle` they answer `404`. With an engine, a path it does not match answers `404` as before.
@@ -53,7 +53,7 @@ const replay = await createMock({ baseUrl: 'https://api.example.com', routes, un
 ```
 
 - With `record: true`, every request under `baseUrl` goes to the real `fetch` (`config.fetch`, or the previous global once installed) and its answer is returned untouched. No latency, no failures, no engine.
-- `mock.recorded()` returns an object usable as `routes`: `METHOD /path`, with ` #<hash>` when the request has a body. A 2xx JSON answer is stored as is, any other status as `{ $status, $body }`, an empty body as `{ $status }`. A body that is not JSON is not recorded. The query string is not part of the key, the last answer wins.
+- `mock.recorded()` returns an object usable as `routes`: `METHOD /path`, with `?<query>` (canonical) when there is one and ` #<hash>` when the request has a body. A 2xx JSON answer is stored as is, any other status as `{ $status, $body }`, an empty body as `{ $status }`. A body that is not JSON is not recorded. The last answer wins for a key.
 - `reset()` clears the recordings. `mock.handle` does not record.
 
 ## Scenarios
@@ -89,13 +89,13 @@ const mock = await installMock({
 
 | Request | Answer |
 |---|---|
-| `GET /<r>` | An array. Every query parameter is an equality filter. Header `X-Total-Count`. |
+| `GET /<r>` | An array. A query parameter that is a field of some row is an equality filter, any other is ignored. Header `X-Total-Count`. |
 | `GET /<r>/:id` | The record, or `404`. |
 | `POST /<r>` | `201` with the record. |
 | `PATCH` or `PUT /<r>/:id` | `200` with the merged record, `404` for an unknown id. |
 | `DELETE /<r>/:id` | `204`, `404` for an unknown id. |
 
-Errors are `{ message, errors }` with `404` or `422`. `resources[name].schema` (Standard Schema) validates every written record, `resources[name].unique` keeps fields unique, and numeric or string ids are kept as given. There is no sorting and no pagination: `sort` or `page` filter like any other parameter. A sorted or paged answer goes in `routes`, written or recorded.
+Errors are `{ message, errors }` with `404` or `422`. `resources[name].schema` (Standard Schema) validates every written record, `resources[name].unique` keeps fields unique, and numeric or string ids are kept as given. There is no sorting and no pagination: `sort` or `page` are ignored unless the rows have such a field. A sorted or paged answer goes in `routes`, written or recorded.
 
 The plain array and the plain record it answers are read as is by the nexdk `nest` and `symfony` drivers.
 

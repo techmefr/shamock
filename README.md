@@ -33,10 +33,10 @@ ArkType...) checks your fixtures. Zero dependencies.
 
 | Entry | Contains | gzip |
 |---|---|---|
-| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes, record and replay, scenarios. No engine, no protocol. | 6.0 kB |
-| `shamock/rest` | CRUD by convention | +0.9 kB (6.9 kB with the core) |
-| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 12.8 kB with the core |
-| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 12.8 kB |
+| `shamock/core` | interception, switch, per-resource mock, failures, latency, `reset`, in-memory store and seed, static routes, record and replay, scenarios. No engine, no protocol. | 6.2 kB |
+| `shamock/rest` | CRUD by convention | +0.9 kB (7.1 kB with the core) |
+| `shamock/lomkit` | search / mutate / delete engine with the lomkit profile | 13.0 kB with the core |
+| `shamock` | the core plus the lomkit engine as the default when `engine` is omitted | 13.0 kB |
 | `shamock/enabled` | the switch only | 0.3 kB |
 
 Prefer `shamock/core` and pass `engine` explicitly: you bundle only what you use. `shamock` keeps the lomkit engine as its default so that existing code keeps working.
@@ -97,7 +97,7 @@ const products = await (await fetch('https://api.example.com/products')).json()
 mock.restore()
 ```
 
-A key is `METHOD /path` or `/path` (any method), trailing slashes ignored, the query string is not part of it. `METHOD /path #<hash>` answers only the body whose `bodyKey(body)` is that hash (FNV-1a 32 bits of the JSON with sorted keys), and wins over the key without hash. A value is JSON, `{ "$status": 401, "$body": {...} }` for another status, or a function `(request, path) => value | Response`. `failures`, `timing`, `enabled`, `fetch` and `reset` work the same.
+A key is `METHOD /path` or `/path` (any method), trailing slashes ignored. A query string is part of the key, parameters sorted by name then value (`GET /users?team=a`), with a fallback to the key without query. `METHOD /path #<hash>` answers only the body whose `bodyKey(body)` is that hash (FNV-1a 32 bits of the JSON with sorted keys), and wins over the key without hash. A value is JSON, `{ "$status": 401, "$body": {...} }` for another status, or a function `(request, path) => value | Response`. `failures`, `timing`, `enabled`, `fetch` and `reset` work the same.
 
 Requests under `baseUrl` that match no route go to the real `fetch` (`unhandled: 'passthrough'`, the default). `unhandled: 'error'` answers them `501` `{ "message": "No mock for GET /path" }` instead, also for a resource an engine matches but the seed lacks.
 
@@ -111,7 +111,7 @@ writeFileSync('routes.json', JSON.stringify(recorder.recorded(), null, 2))
 await installMock({ baseUrl: 'https://api.example.com', routes: JSON.parse(readFileSync('routes.json', 'utf8')), unhandled: 'error' })
 ```
 
-With `record: true`, every request under `baseUrl` goes to the real `fetch` and its answer comes back untouched. `mock.recorded()` returns the captured answers as `routes`: `METHOD /path`, plus `#<hash>` when the request has a body, a 2xx JSON body as is, any other status as `{ $status, $body }`, an empty body as `{ $status }`. A body that is not JSON is not recorded. The last answer wins for a key. `reset()` clears the recordings. Recording goes through `fetch` and `install`, not `handle`.
+With `record: true`, every request under `baseUrl` goes to the real `fetch` and its answer comes back untouched. `mock.recorded()` returns the captured answers as `routes`: `METHOD /path`, plus `?query` (canonical) when present and `#<hash>` when the request has a body, a 2xx JSON body as is, any other status as `{ $status, $body }`, an empty body as `{ $status }`. A body that is not JSON is not recorded. The last answer wins for a key. `reset()` clears the recordings. Recording goes through `fetch` and `install`, not `handle`.
 
 ### Scenarios
 
@@ -148,7 +148,7 @@ await fetch('https://api.example.com/products?name=A')
 await fetch('https://api.example.com/products', { method: 'POST', body: JSON.stringify({ name: 'B' }) })
 ```
 
-Routes: `GET /<r>` (every query parameter is an equality filter, header `X-Total-Count`), `GET /<r>/:id`, `POST /<r>` (201), `PATCH|PUT /<r>/:id`, `DELETE /<r>/:id` (204). Errors are `{ message, errors }` with 404 or 422. `resources[name].schema` validates every written record, `resources[name].unique` keeps fields unique, numeric and string ids are kept as given. No sorting, no pagination: `sort` or `page` are filters like any other parameter. For a sorted or paged answer, give it in `routes` (a static value or a function) or record it. The plain array it answers is read as is by the nexdk `nest` and `symfony` drivers.
+Routes: `GET /<r>` (a query parameter that is a field of some row is an equality filter, any other is ignored, header `X-Total-Count`), `GET /<r>/:id`, `POST /<r>` (201), `PATCH|PUT /<r>/:id`, `DELETE /<r>/:id` (204). Errors are `{ message, errors }` with 404 or 422. `resources[name].schema` validates every written record, `resources[name].unique` keeps fields unique, numeric and string ids are kept as given. No sorting, no pagination: `sort` or `page` are ignored unless the rows have such a field. For a sorted or paged answer, give it in `routes` (a static value or a function) or record it. The plain array it answers is read as is by the nexdk `nest` and `symfony` drivers.
 
 ### With the lomkit engine
 

@@ -32,15 +32,16 @@ describe('rest engine reads', () => {
         expect(await (await call(fetch, 'GET', '/people?team=a')).json()).toEqual([people[0], people[2]])
         expect(await (await call(fetch, 'GET', '/people?team=a&name=Linus')).json()).toEqual([people[2]])
         expect(await (await call(fetch, 'GET', '/people?team=a&team=b')).json()).toHaveLength(4)
-        expect(await (await call(fetch, 'GET', '/people?missing=1')).json()).toEqual([])
+        expect(await (await call(fetch, 'GET', '/people?missing=1')).json()).toEqual(people)
+        expect(await (await call(fetch, 'GET', '/people?team=c')).json()).toEqual([])
     })
 
-    it('reads sort and page as plain equality filters', async () => {
+    it('ignores query parameters that are no field of any row', async () => {
         const fetch = await setup()
         const response = await call(fetch, 'GET', '/people?sort=age&page=1')
-        expect(await response.json()).toEqual([])
-        expect(response.headers.get('X-Total-Count')).toBe('0')
-        expect(await (await call(fetch, 'GET', '/people?age=41')).json()).toEqual([people[3]])
+        expect(await response.json()).toEqual(people)
+        expect(response.headers.get('X-Total-Count')).toBe('4')
+        expect(await (await call(fetch, 'GET', '/people?page=1&age=41')).json()).toEqual([people[3]])
     })
 
     it('finds one row by numeric or string id and answers 404 otherwise', async () => {

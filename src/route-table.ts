@@ -4,7 +4,7 @@ import { json } from './response.ts'
 export type StaticRoute = unknown | ((request: Request, path: string) => unknown)
 
 export interface RouteTable {
-    find: (method: string, path: string, hash: string | undefined) => { value: StaticRoute } | undefined
+    find: (method: string, path: string, query: string, hash: string | undefined) => { value: StaticRoute } | undefined
     hashed: (method: string, path: string) => boolean
 }
 
@@ -37,20 +37,29 @@ export function textKey(text: string): string | undefined {
     }
 }
 
+const byText = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0)
+
+export const canonicalQuery = (params: URLSearchParams): string =>
+    new URLSearchParams([...params].sort(([a, x], [b, y]) => byText(a, b) || byText(x, y))).toString()
+
+export const routeKey = (method: string, path: string, query: string, hash: string | undefined): string =>
+    `${method} ${path === '' ? '/' : path}${query === '' ? '' : `?${query}`}${hash === undefined ? '' : ` #${hash}`}`
+
 export function routeTable(routes: Record<string, StaticRoute> | undefined): RouteTable {
     const table = new Map<string, StaticRoute>()
     const withHash = new Set<string>()
     for (const [key, value] of Object.entries(routes ?? {})) {
         const match = ROUTE_KEY.exec(key)
         if (match === null) throw new TypeError(`Invalid route "${key}": expected "METHOD /path", "/path" or "METHOD /path #hash"`)
-        const route = `${(match[1] ?? '').toUpperCase()} ${trimmed(match[2] as string)}`
-        if (match[3] !== undefined) withHash.add(route)
-        table.set(match[3] === undefined ? route : `${route} #${match[3].toLowerCase()}`, value)
+        const [path = '', search = ''] = (match[2] as string).split(/\?(.*)/)
+        const method = (match[1] ?? '').toUpperCase()
+        if (match[3] !== undefined) withHash.add(`${method} ${trimmed(path)}`)
+        table.set(routeKey(method, trimmed(path), canonicalQuery(new URLSearchParams(search)), match[3]?.toLowerCase()), value)
     }
     return {
-        find(method, path, hash) {
-            const plain = [`${method} ${path}`, ` ${path}`]
-            const candidates = hash === undefined ? plain : [...plain.map(route => `${route} #${hash}`), ...plain]
+        find(method, path, query, hash) {
+            const variants: [string, string | undefined][] = [[query, hash], ['', hash], [query, undefined], ['', undefined]]
+            const candidates = variants.flatMap(([search, digest]) => [routeKey(method, path, search, digest), routeKey('', path, search, digest)])
             const key = candidates.find(candidate => table.has(candidate))
             return key === undefined ? undefined : { value: table.get(key) }
         },

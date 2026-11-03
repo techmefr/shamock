@@ -1,5 +1,5 @@
 import type { FetchLike } from './install.ts'
-import { textKey } from './route-table.ts'
+import { canonicalQuery, routeKey, textKey } from './route-table.ts'
 
 export interface Recorder {
     capture: (request: Request, method: string, path: string, send: FetchLike) => Promise<Response>
@@ -29,7 +29,7 @@ export function createRecorder(): Recorder {
             const hash = textKey(await request.clone().text())
             const response = await send.call(globalThis, request)
             const value = entry(response.status, await response.clone().text())
-            const key = `${method} ${path === '' ? '/' : path}${hash === undefined ? '' : ` #${hash}`}`
+            const key = routeKey(method, path, canonicalQuery(new URL(request.url).searchParams), hash)
             if (value !== undefined) entries.set(key, value)
             return response
         },

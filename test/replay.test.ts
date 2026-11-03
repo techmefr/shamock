@@ -85,6 +85,28 @@ describe('body keyed routes', () => {
         expect((await mock.fetch(`${BASE}/fn`)).status).toBe(418)
     })
 
+    it('matches the query whatever the parameter order and falls back to the key without query', async () => {
+        const mock = await createMock({
+            baseUrl: BASE,
+            timing: 0,
+            routes: {
+                'GET /users?team=a&role=x&role=b': [{ id: 1 }],
+                'GET /users?team=b': [{ id: 2 }],
+                'GET /users': [],
+                [`POST /search?page=2 #${bodyKey({ q: 'ada' })}`]: ['page two'],
+                [`POST /search #${bodyKey({ q: 'ada' })}`]: ['any page'],
+                'POST /search?page=2': ['no body match'],
+            },
+        })
+        expect(await (await mock.fetch(`${BASE}/users?role=b&team=a&role=x`)).json()).toEqual([{ id: 1 }])
+        expect(await (await mock.fetch(`${BASE}/users?team=b`)).json()).toEqual([{ id: 2 }])
+        expect(await (await mock.fetch(`${BASE}/users?team=c`)).json()).toEqual([])
+        expect(await (await mock.fetch(`${BASE}/users?role=x&team=a`)).json()).toEqual([])
+        expect(await (await post(mock.fetch, '/search?page=2', { q: 'ada' })).json()).toEqual(['page two'])
+        expect(await (await post(mock.fetch, '/search?page=3', { q: 'ada' })).json()).toEqual(['any page'])
+        expect(await (await post(mock.fetch, '/search?page=2', { q: 'other' })).json()).toEqual(['no body match'])
+    })
+
     it('rejects a malformed hash key', async () => {
         await expect(createMock({ baseUrl: BASE, routes: { 'POST /search #zz': [] } })).rejects.toThrow('Invalid route')
     })
@@ -135,6 +157,18 @@ describe('record and replay', () => {
         expect((await mock.fetch(`${BASE}/users/1`, { method: 'DELETE' })).status).toBe(204)
         expect((await post(mock.fetch, '/search', { q: 'other' })).status).toBe(501)
         expect(replayed.calls).toEqual([])
+    })
+
+    it('records and replays each query string apart', async () => {
+        const teams: FetchLike = async input => Response.json([{ team: new URL(String(input instanceof Request ? input.url : input)).searchParams.get('team') }])
+        const recorder = await createMock({ baseUrl: BASE, fetch: teams, record: true, timing: 0 })
+        await recorder.fetch(`${BASE}/users?team=a&page=1`)
+        await recorder.fetch(`${BASE}/users?team=b`)
+        expect(recorder.recorded()).toEqual({ 'GET /users?page=1&team=a': [{ team: 'a' }], 'GET /users?team=b': [{ team: 'b' }] })
+        const mock = await createMock({ baseUrl: BASE, fetch: origin, routes: recorder.recorded(), unhandled: 'error', timing: 0 })
+        expect(await (await mock.fetch(`${BASE}/users?page=1&team=a`)).json()).toEqual([{ team: 'a' }])
+        expect(await (await mock.fetch(`${BASE}/users?team=b`)).json()).toEqual([{ team: 'b' }])
+        expect((await mock.fetch(`${BASE}/users?team=c`)).status).toBe(501)
     })
 
     it('sends calls outside the base url to the origin without recording them', async () => {
