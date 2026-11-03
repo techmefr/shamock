@@ -12,7 +12,7 @@ shamock = interception of the real `fetch` that replays rather than interprets: 
 
 ## Layout
 Core (no protocol):
-- `src/core.ts` entry `shamock/core`. `src/create-mock.ts` `createMock`, `installMock`, `unhandled`, routing to the static routes then the engine.
+- `src/core.ts` entry `shamock/core`. `src/create-mock.ts` `createMock`, `installMock`, latency and failures, interception (`serve`, `install`). `src/router.ts` static routes then the engine, `unhandled`. `src/target.ts` URL, method and path under `baseUrl`. `src/state.ts` stores from the seed, `reset`, `exclusive`. `src/validate-config.ts` seed, `timing`, `unhandled` checks.
 - `src/route-table.ts` route keys (`METHOD /path`, `/path`, `METHOD /path #hash`), `bodyKey` (FNV-1a 32 bits hex of the JSON with sorted keys), `{ $status, $body }` values. `src/recorder.ts` `record` mode. `src/scenarios.ts` `scenarios` merge (routes and seed by key, failures replaced, unknown name throws).
 - `src/engine.ts` the `Engine` contract and its types.
 - `src/parse-mock.ts` validation and `MockValidationError`. `src/validation.ts` record validation helpers.
@@ -23,7 +23,7 @@ Core (no protocol):
 - `src/body.ts` bounded JSON body reading. `src/response.ts`, `src/http-error.ts`, `src/record.ts`, `src/standard-schema.ts` helpers.
 
 Engines:
-- `src/lomkit.ts` entry `shamock/lomkit`. `src/lomkit/engine.ts` routes, mutate, delete, options. `src/lomkit/search.ts` filters (SQL precedence), sorts, selects, includes, pagination, limits, bounds. `src/lomkit/dates.ts`, `src/lomkit/request-body.ts`.
+- `src/lomkit.ts` entry `shamock/lomkit`. `src/lomkit/engine.ts` routes, options. `src/lomkit/writes.ts` mutate, delete. `src/lomkit/search.ts` execution and shaping (includes, aggregates, gates, pagination). `src/lomkit/parse-search.ts` the search body, `src/lomkit/search-input.ts` field readers and bounds (filters, sorts, selects, limit), `src/lomkit/declared.ts` aggregates, scopes, instructions, gates. `src/lomkit/match.ts` filters (SQL precedence), like, sorts. `src/lomkit/search-types.ts`, `src/lomkit/dates.ts`, `src/lomkit/request-body.ts`.
 - `src/rest.ts` entry `shamock/rest`: CRUD by convention, equality filters on query parameters that are a field of some row (others ignored), `X-Total-Count`, `unique`, schema. No sort, no pagination, no option: do not add them back, a sorted or paged answer is a route.
 - `src/mock.ts` main entry wrapper: the core with the lomkit engine as default. `src/search.ts` and `src/request-body.ts` only re-export, so existing imports keep working.
 
@@ -42,6 +42,7 @@ Engines:
 - Same calling code with the mock and with the real backend: the switch is the variable (`enabled`) or `resources[name].mock`, never a change in the callers. State is in memory and restarts from the seed, no persistence. Guard the install with a dynamic `import('shamock')` behind a compile-time constant to keep it out of production bundles.
 - Docs live in `docs/` (Starlight). Keep README, docs and this file in sync with `src/`.
 - No comments in code or code blocks.
+- Code in `src`: no function over 75 lines, no file over 200 lines. Split along a nameable responsibility, never into a catch-all module.
 
 ## Build and test
 `pnpm build` · `pnpm test` · `pnpm typecheck`. Docs: `pnpm --dir docs build`. Node.js >= 22. No workspace, no sibling packages.
